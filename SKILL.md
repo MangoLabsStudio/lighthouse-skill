@@ -226,9 +226,12 @@ The wrapper is shorter, safer, and performs local validation (env-var presence, 
 
 ```bash
 ./scripts/lighthouse balance
-./scripts/lighthouse pricing
-./scripts/lighthouse campaigns:create <payload.json>
-./scripts/lighthouse campaigns:get <campaign-id>
+./scripts/lighthouse campaigns list [--status ACTIVE|PAUSED|ENDED|CLOSED] [--page N] [--page-size N]
+./scripts/lighthouse campaigns get <campaign-id>
+./scripts/lighthouse campaigns create-engagement \
+    --url <tweet-url> --budget <lux> \
+    [--like N] [--rt N] [--comment N] [--follow N] [--comment-like N] \
+    [--mode OPEN|INVITE] [--tiers S,A,B] [--expires-in-hours N]
 ```
 
 ### Fallback: `curl`
@@ -267,11 +270,11 @@ curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
      -H "Content-Type: application/json" \
      -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
      -d '{
-       "tweetUrl": "https://x.com/foo/status/123",
+       "targetUrl": "https://x.com/foo/status/123",
        "actions": [
-         { "type": "LIKE", "tierSlots": { "A": 100 } }
+         { "actionType": "LIKE", "tierSlots": { "A": 100 } }
        ],
-       "mode": "OPEN"
+       "expiresInHours": 8
      }'
 ```
 
