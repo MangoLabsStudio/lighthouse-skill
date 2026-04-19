@@ -25,7 +25,7 @@ USAGE
 
 case "${1:-}" in ""|-h|--help) usage; exit 0;; esac
 
-[ -n "${LIGHTHOUSE_API_KEY:-}" ] || die "LIGHTHOUSE_API_KEY env var is required (must start with lh_live_)"
+[ -n "${LIGHTHOUSE_API_KEY:-}" ] || die "LIGHTHOUSE_API_KEY env var is required"
 [[ "$LIGHTHOUSE_API_KEY" == lh_live_* ]] || die "LIGHTHOUSE_API_KEY must start with lh_live_"
 
 command -v curl >/dev/null || die "curl not found"

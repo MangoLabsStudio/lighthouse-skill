@@ -13,11 +13,17 @@ pass() { echo "PASS: $*"; }
 unset LIGHTHOUSE_API_KEY
 out=$("$SCRIPT" balance 2>&1) && fail "expected non-zero exit without key"
 echo "$out" | grep -qi "LIGHTHOUSE_API_KEY" || fail "missing-key error should mention env var"
+echo "$out" | grep -qi "required" || fail "missing-key error should say 'required'"
 pass "missing key handled"
 
-# Bad key prefix must error clearly
-LIGHTHOUSE_API_KEY="bad_key_123" out=$("$SCRIPT" balance 2>&1) && fail "expected non-zero for bad prefix"
-echo "$out" | grep -qi "lh_live_" || fail "bad-prefix error should mention expected format"
+# Bad key prefix must error clearly. Use a subshell with explicit `export` so the
+# var actually reaches the child process — `FOO=bar out=$(cmd)` is parsed as two
+# separate shell assignments, not a command prefix, so the child wouldn't see it.
+(
+  export LIGHTHOUSE_API_KEY="bad_key_123"
+  out=$("$SCRIPT" balance 2>&1) && exit 99
+  echo "$out" | grep -qi "must start with lh_live_" || exit 98
+) || fail "bad key prefix test failed (code $?)"
 pass "bad key prefix handled"
 
 # Help command works
