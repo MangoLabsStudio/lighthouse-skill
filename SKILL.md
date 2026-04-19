@@ -201,3 +201,90 @@ This flow is not advisory. A LUX-spending call without this flow is a bug — th
 > User: "confirm"
 > Agent: Calls `POST /campaigns/engagement`, returns the campaign ID and a link.
 
+## Error Handling
+
+All Lighthouse Open API errors return a JSON body with at least `{ code, message }`. Map HTTP status + code to one of the actions below. **Do not silently retry** — retrying a bad request with the same inputs just burns rate limit.
+
+| HTTP       | Code                     | Meaning                                                                        | Agent action                                                                                                 |
+|------------|--------------------------|--------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| 401        | `INVALID_API_KEY`        | API key wrong / expired / revoked.                                             | Tell the user to check or rotate their key. Do NOT retry.                                                    |
+| 403        | `PERMISSION_DENIED`      | Key is valid but does not have permission for this endpoint / resource.        | Tell the user. Do NOT retry.                                                                                 |
+| 400        | `INSUFFICIENT_BALANCE` (or BadRequest with `"Insufficient LUX balance"` in message) | Buyer cannot afford the campaign.              | Re-run `GET /balance`, report the shortfall (`needed − have = X LUX`) to the user. Do NOT retry.             |
+| 429        | `RATE_LIMIT_EXCEEDED`    | Too many requests in the window.                                               | Wait 60 seconds, retry once. If still 429, abort and tell the user to slow down.                             |
+| 422        | Validation error         | Request body malformed (bad tier key, illegal action combination, etc.).       | Read the error detail aloud to the user. Do NOT auto-fix and retry without user confirmation.                |
+| 4xx / 5xx other | —                   | Unknown / unexpected.                                                          | Report the raw response (status + body) to the user. Do not silently retry.                                  |
+
+Note: the 422 row includes the `COMMENT_LIKE` exclusion rule. If you see a 422 mentioning LIKE/COMMENT/COMMENT_LIKE, re-read the "COMMENT_LIKE mutual exclusion" section above rather than guessing a fix.
+
+## Tool Preference
+
+Prefer the bundled CLI wrapper, fall back to `curl` when the script is not available.
+
+### Preferred: `./scripts/lighthouse`
+
+The wrapper is shorter, safer, and performs local validation (env-var presence, key prefix, basic request-shape checks) before hitting the network. Use it whenever `./scripts/lighthouse` exists in the working tree.
+
+```bash
+./scripts/lighthouse balance
+./scripts/lighthouse pricing
+./scripts/lighthouse campaigns:create <payload.json>
+./scripts/lighthouse campaigns:get <campaign-id>
+```
+
+### Fallback: `curl`
+
+When the script is not installed (e.g. the user is running Lighthouse from a different checkout), use `curl` directly. Always pass the key via the `X-API-Key` header — **never** via URL query string, request body, or shell arg visible in `ps`.
+
+Generic template:
+
+```bash
+curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+     -H "Content-Type: application/json" \
+     -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+     -d '{...}'
+```
+
+One example per endpoint (brief — full schemas live in `references/api-reference.md`):
+
+**GET `/balance`** — current wallet:
+
+```bash
+curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+     "$LIGHTHOUSE_API_BASE/balance"
+```
+
+**GET `/pricing`** — authoritative tier × action price table + fee rate:
+
+```bash
+curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+     "$LIGHTHOUSE_API_BASE/pricing"
+```
+
+**POST `/campaigns/engagement`** — create an Engagement campaign:
+
+```bash
+curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+     -H "Content-Type: application/json" \
+     -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+     -d '{
+       "tweetUrl": "https://x.com/foo/status/123",
+       "actions": [
+         { "type": "LIKE", "tierSlots": { "A": 100 } }
+       ],
+       "mode": "OPEN"
+     }'
+```
+
+**GET `/campaigns/{id}`** — inspect a campaign's status and fill progress:
+
+```bash
+curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+     "$LIGHTHOUSE_API_BASE/campaigns/<campaign-id>"
+```
+
+### Secrets hygiene
+
+- **Never** echo, log, or commit the value of `$LIGHTHOUSE_API_KEY`. Reference it by variable name only.
+- Do not include the key in error messages, diagnostic dumps, or chat output — even partially redacted.
+- If the user accidentally pastes their key into chat, tell them to rotate it immediately (the transcript is already logged).
+
