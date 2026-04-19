@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="${LIGHTHOUSE_API_BASE:-https://service.lhdao.top/open-api/v1}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  lighthouse balance
+  lighthouse campaigns list [--status ACTIVE|PAUSED|ENDED|CLOSED] [--page N] [--page-size N]
+  lighthouse campaigns get <id>
+  lighthouse campaigns create-engagement --url <tweet-url> --budget <lux> \
+     [--like N] [--rt N] [--comment N] [--follow N] [--comment-like N] \
+     [--mode OPEN|INVITE] [--tiers S,A,B] [--expires-in-hours N]
+
+Env:
+  LIGHTHOUSE_API_KEY   required, must start with "lh_live_"
+  LIGHTHOUSE_API_BASE  optional, default https://service.lhdao.top/open-api/v1
+
+Requires: curl, jq.
+USAGE
+}
+
+case "${1:-}" in ""|-h|--help) usage; exit 0;; esac
+
+[ -n "${LIGHTHOUSE_API_KEY:-}" ] || die "LIGHTHOUSE_API_KEY env var is required (must start with lh_live_)"
+[[ "$LIGHTHOUSE_API_KEY" == lh_live_* ]] || die "LIGHTHOUSE_API_KEY must start with lh_live_"
+
+command -v curl >/dev/null || die "curl not found"
+command -v jq   >/dev/null || die "jq not found"
+
+req() {
+  local method="$1" path="$2" body="${3:-}"
+  local args=(-sS -X "$method" -H "X-API-Key: $LIGHTHOUSE_API_KEY" -H "Content-Type: application/json")
+  [ -n "$body" ] && args+=(--data "$body")
+  curl "${args[@]}" "$BASE$path"
+}
+
+cmd="$1"; shift
+case "$cmd" in
+  balance)
+    req GET /balance | jq .
+    ;;
+  campaigns)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      list)
+        qs=""
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --status) qs+="${qs:+&}status=$2"; shift 2;;
+            --page) qs+="${qs:+&}page=$2"; shift 2;;
+            --page-size) qs+="${qs:+&}pageSize=$2"; shift 2;;
+            *) die "unknown arg: $1";;
+          esac
+        done
+        req GET "/campaigns${qs:+?$qs}" | jq .
+        ;;
+      get)
+        id="${1:?id required}"
+        req GET "/campaigns/$id" | jq .
+        ;;
+      create-engagement)
+        url="" budget="" like=0 rt=0 comment=0 follow=0 clike=0
+        mode="OPEN" tiers="" expires=8
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --url) url="$2"; shift 2;;
+            --budget) budget="$2"; shift 2;;
+            --like) like="$2"; shift 2;;
+            --rt) rt="$2"; shift 2;;
+            --comment) comment="$2"; shift 2;;
+            --follow) follow="$2"; shift 2;;
+            --comment-like) clike="$2"; shift 2;;
+            --mode) mode="$2"; shift 2;;
+            --tiers) tiers="$2"; shift 2;;
+            --expires-in-hours) expires="$2"; shift 2;;
+            *) die "unknown arg: $1";;
+          esac
+        done
+        [ -n "$url" ] && [ -n "$budget" ] || die "--url and --budget required"
+        actions=$(jq -nc \
+          --argjson like "$like" --argjson rt "$rt" --argjson comment "$comment" \
+          --argjson follow "$follow" --argjson clike "$clike" '
+          [
+            {actionType:"LIKE",targetCount:$like},
+            {actionType:"RT",targetCount:$rt},
+            {actionType:"COMMENT",targetCount:$comment},
+            {actionType:"FOLLOW",targetCount:$follow},
+            {actionType:"COMMENT_LIKE",targetCount:$clike}
+          ] | map(select(.targetCount > 0))')
+        tiers_json="null"
+        [ -n "$tiers" ] && tiers_json=$(jq -nc --arg t "$tiers" '$t | split(",")')
+        body=$(jq -nc \
+          --arg url "$url" --argjson budget "$budget" --arg mode "$mode" \
+          --argjson actions "$actions" --argjson tiers "$tiers_json" --argjson expires "$expires" '
+          {targetUrl:$url,actions:$actions,totalBudget:$budget,mode:$mode,expiresInHours:$expires}
+          + (if $tiers then {targetTiers:$tiers} else {} end)')
+        req POST /campaigns/engagement "$body" | jq .
+        ;;
+      *) die "unknown campaigns subcommand: $sub";;
+    esac
+    ;;
+  *) die "unknown command: $cmd";;
+esac
