@@ -5,6 +5,9 @@ BASE="${LIGHTHOUSE_API_BASE:-https://service.lhdao.top/open-api/v1}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
+is_nonneg_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
+is_nonneg_num() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -13,7 +16,7 @@ Usage:
   lighthouse campaigns get <id>
   lighthouse campaigns create-engagement --url <tweet-url> --budget <lux> \
      [--like N] [--rt N] [--comment N] [--follow N] [--comment-like N] \
-     [--mode OPEN|INVITE] [--tiers S,A,B] [--expires-in-hours N]
+     [--mode OPEN|INVITE] [--tiers S,A,B] [--expires-in-hours N] [--print-body]
 
 Env:
   LIGHTHOUSE_API_KEY   required, must start with "lh_live_"
@@ -35,7 +38,14 @@ req() {
   local method="$1" path="$2" body="${3:-}"
   local args=(-sS -X "$method" -H "X-API-Key: $LIGHTHOUSE_API_KEY" -H "Content-Type: application/json")
   [ -n "$body" ] && args+=(--data "$body")
-  curl "${args[@]}" "$BASE$path"
+  local tmp http
+  tmp=$(mktemp) || die "mktemp failed"
+  http=$(curl "${args[@]}" -o "$tmp" -w '%{http_code}' "$BASE$path") || { rm -f "$tmp"; die "curl failed"; }
+  cat "$tmp"; rm -f "$tmp"
+  if [ "$http" -lt 200 ] || [ "$http" -ge 300 ]; then
+    echo "HTTP $http" >&2
+    return 1
+  fi
 }
 
 cmd="$1"; shift
@@ -45,14 +55,21 @@ case "$cmd" in
     ;;
   campaigns)
     sub="${1:-}"; shift || true
+    [ -n "$sub" ] || die "usage: lighthouse campaigns <list|get|create-engagement>"
     case "$sub" in
       list)
         qs=""
         while [ $# -gt 0 ]; do
           case "$1" in
-            --status) qs+="${qs:+&}status=$2"; shift 2;;
-            --page) qs+="${qs:+&}page=$2"; shift 2;;
-            --page-size) qs+="${qs:+&}pageSize=$2"; shift 2;;
+            --status)
+              case "$2" in ACTIVE|PAUSED|ENDED|CLOSED) ;; *) die "--status must be ACTIVE/PAUSED/ENDED/CLOSED";; esac
+              qs+="${qs:+&}status=$2"; shift 2;;
+            --page)
+              is_nonneg_int "$2" || die "--page must be a non-negative integer, got: $2"
+              qs+="${qs:+&}page=$2"; shift 2;;
+            --page-size)
+              is_nonneg_int "$2" || die "--page-size must be a non-negative integer, got: $2"
+              qs+="${qs:+&}pageSize=$2"; shift 2;;
             *) die "unknown arg: $1";;
           esac
         done
@@ -64,23 +81,46 @@ case "$cmd" in
         ;;
       create-engagement)
         url="" budget="" like=0 rt=0 comment=0 follow=0 clike=0
-        mode="OPEN" tiers="" expires=8
+        mode="OPEN" tiers="" expires="" print_body=0
         while [ $# -gt 0 ]; do
           case "$1" in
             --url) url="$2"; shift 2;;
             --budget) budget="$2"; shift 2;;
-            --like) like="$2"; shift 2;;
-            --rt) rt="$2"; shift 2;;
-            --comment) comment="$2"; shift 2;;
-            --follow) follow="$2"; shift 2;;
-            --comment-like) clike="$2"; shift 2;;
+            --like)
+              is_nonneg_int "$2" || die "--like must be a non-negative integer, got: $2"
+              like="$2"; shift 2;;
+            --rt)
+              is_nonneg_int "$2" || die "--rt must be a non-negative integer, got: $2"
+              rt="$2"; shift 2;;
+            --comment)
+              is_nonneg_int "$2" || die "--comment must be a non-negative integer, got: $2"
+              comment="$2"; shift 2;;
+            --follow)
+              is_nonneg_int "$2" || die "--follow must be a non-negative integer, got: $2"
+              follow="$2"; shift 2;;
+            --comment-like)
+              is_nonneg_int "$2" || die "--comment-like must be a non-negative integer, got: $2"
+              clike="$2"; shift 2;;
             --mode) mode="$2"; shift 2;;
             --tiers) tiers="$2"; shift 2;;
-            --expires-in-hours) expires="$2"; shift 2;;
+            --expires-in-hours)
+              is_nonneg_int "$2" || die "--expires-in-hours must be a non-negative integer, got: $2"
+              expires="$2"; shift 2;;
+            --print-body) print_body=1; shift;;
             *) die "unknown arg: $1";;
           esac
         done
         [ -n "$url" ] && [ -n "$budget" ] || die "--url and --budget required"
+        is_nonneg_num "$budget" || die "--budget must be a non-negative number, got: $budget"
+        case "$mode" in OPEN|INVITE) ;; *) die "--mode must be OPEN or INVITE";; esac
+        tiers_json="null"
+        if [ -n "$tiers" ]; then
+          IFS=',' read -ra _ts <<<"$tiers"
+          for t in "${_ts[@]}"; do
+            case "$t" in S|A|B|C|D|E) ;; *) die "invalid tier: $t (expected S/A/B/C/D/E)";; esac
+          done
+          tiers_json=$(jq -nc --arg t "$tiers" '$t | split(",")')
+        fi
         actions=$(jq -nc \
           --argjson like "$like" --argjson rt "$rt" --argjson comment "$comment" \
           --argjson follow "$follow" --argjson clike "$clike" '
@@ -91,13 +131,18 @@ case "$cmd" in
             {actionType:"FOLLOW",targetCount:$follow},
             {actionType:"COMMENT_LIKE",targetCount:$clike}
           ] | map(select(.targetCount > 0))')
-        tiers_json="null"
-        [ -n "$tiers" ] && tiers_json=$(jq -nc --arg t "$tiers" '$t | split(",")')
+        [ "$(jq 'length' <<<"$actions")" -gt 0 ] \
+          || die "at least one of --like/--rt/--comment/--follow/--comment-like must be > 0"
         body=$(jq -nc \
           --arg url "$url" --argjson budget "$budget" --arg mode "$mode" \
-          --argjson actions "$actions" --argjson tiers "$tiers_json" --argjson expires "$expires" '
-          {targetUrl:$url,actions:$actions,totalBudget:$budget,mode:$mode,expiresInHours:$expires}
-          + (if $tiers then {targetTiers:$tiers} else {} end)')
+          --argjson actions "$actions" --argjson tiers "$tiers_json" --arg expires "$expires" '
+          {targetUrl:$url,actions:$actions,totalBudget:$budget,mode:$mode}
+          + (if $tiers then {targetTiers:$tiers} else {} end)
+          + (if $expires == "" then {} else {expiresInHours:($expires|tonumber)} end)')
+        if [ "$print_body" -eq 1 ]; then
+          echo "$body"
+          exit 0
+        fi
         req POST /campaigns/engagement "$body" | jq .
         ;;
       *) die "unknown campaigns subcommand: $sub";;

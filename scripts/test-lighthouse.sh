@@ -7,6 +7,13 @@ SCRIPT="$HERE/lighthouse"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "PASS: $*"; }
 
+expect_fail() {
+  local label="$1" msg="$2"; shift 2
+  out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" "$@" 2>&1) && fail "$label: expected failure"
+  echo "$out" | grep -q "$msg" || fail "$label: missing message '$msg' in: $out"
+  pass "$label"
+}
+
 [ -x "$SCRIPT" ] || fail "scripts/lighthouse not executable"
 
 # Missing API key must error clearly
@@ -29,5 +36,33 @@ pass "bad key prefix handled"
 # Help command works
 "$SCRIPT" --help | grep -qi "lighthouse balance" || fail "--help missing usage"
 pass "--help output OK"
+
+# Input validation smoke tests (S1)
+expect_fail "missing actions" "at least one of" \
+  campaigns create-engagement --url https://x.com/x/status/1 --budget 100
+
+expect_fail "bad budget" "non-negative number" \
+  campaigns create-engagement --url https://x.com/x/status/1 --budget abc --like 1
+
+expect_fail "bad mode" "OPEN or INVITE" \
+  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 1 --mode open
+
+expect_fail "bad tier" "invalid tier" \
+  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 1 --tiers foo
+
+# --print-body success path
+out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
+  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 5 --print-body 2>&1) \
+  || fail "--print-body should succeed, got: $out"
+echo "$out" | grep -q '"totalBudget":100' || fail "--print-body missing totalBudget: $out"
+echo "$out" | grep -q '"actionType":"LIKE"' || fail "--print-body missing LIKE action: $out"
+echo "$out" | grep -q "expiresInHours" && fail "--print-body should NOT include expiresInHours by default: $out"
+pass "--print-body default (no expiresInHours)"
+
+out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
+  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 5 --print-body --expires-in-hours 4 2>&1) \
+  || fail "--print-body with expires should succeed, got: $out"
+echo "$out" | grep -q '"expiresInHours":4' || fail "--print-body missing expiresInHours:4: $out"
+pass "--print-body with --expires-in-hours"
 
 echo "ALL SMOKE TESTS PASSED"
