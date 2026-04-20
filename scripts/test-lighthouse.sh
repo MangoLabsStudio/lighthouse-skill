@@ -10,7 +10,7 @@ pass() { echo "PASS: $*"; }
 expect_fail() {
   local label="$1" msg="$2"; shift 2
   out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" "$@" 2>&1) && fail "$label: expected failure"
-  echo "$out" | grep -q "$msg" || fail "$label: missing message '$msg' in: $out"
+  echo "$out" | grep -q -e "$msg" || fail "$label: missing message '$msg' in: $out"
   pass "$label"
 }
 
@@ -23,9 +23,7 @@ echo "$out" | grep -qi "LIGHTHOUSE_API_KEY" || fail "missing-key error should me
 echo "$out" | grep -qi "required" || fail "missing-key error should say 'required'"
 pass "missing key handled"
 
-# Bad key prefix must error clearly. Use a subshell with explicit `export` so the
-# var actually reaches the child process — `FOO=bar out=$(cmd)` is parsed as two
-# separate shell assignments, not a command prefix, so the child wouldn't see it.
+# Bad key prefix must error clearly.
 (
   export LIGHTHOUSE_API_KEY="bad_key_123"
   out=$("$SCRIPT" balance 2>&1) && exit 99
@@ -37,32 +35,59 @@ pass "bad key prefix handled"
 "$SCRIPT" --help | grep -qi "lighthouse balance" || fail "--help missing usage"
 pass "--help output OK"
 
-# Input validation smoke tests (S1)
-expect_fail "missing actions" "at least one of" \
-  campaigns create-engagement --url https://x.com/x/status/1 --budget 100
+# --- Input validation for create-engagement ---
 
-expect_fail "bad budget" "non-negative number" \
-  campaigns create-engagement --url https://x.com/x/status/1 --budget abc --like 1
+expect_fail "missing --url" "--url is required" \
+  campaigns create-engagement --action LIKE:A=5
 
-expect_fail "bad mode" "OPEN or INVITE" \
-  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 1 --mode open
+expect_fail "no --action" "at least one --action" \
+  campaigns create-engagement --url https://x.com/x/status/1
 
-expect_fail "bad tier" "invalid tier" \
-  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 1 --tiers foo
+expect_fail "bad action type" "invalid action type" \
+  campaigns create-engagement --url https://x.com/x/status/1 --action FOO:A=5
 
-# --print-body success path
+expect_fail "bad tier (S)" "invalid tier" \
+  campaigns create-engagement --url https://x.com/x/status/1 --action LIKE:S=5
+
+expect_fail "bad count" "must be non-negative integer" \
+  campaigns create-engagement --url https://x.com/x/status/1 --action LIKE:A=abc
+
+expect_fail "zero total" "total slots must be > 0" \
+  campaigns create-engagement --url https://x.com/x/status/1 --action LIKE:A=0,B=0
+
+expect_fail "mutex COMMENT_LIKE + LIKE" "COMMENT_LIKE cannot be combined" \
+  campaigns create-engagement --url https://x.com/x/status/1 \
+  --action COMMENT_LIKE:A=5 --action LIKE:A=5
+
+# --- Happy path --print-body ---
 out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
-  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 5 --print-body 2>&1) \
+  campaigns create-engagement \
+  --url URL \
+  --action LIKE:A=5,B=10 \
+  --action RT:A=3 \
+  --expires-in-hours 4 \
+  --print-body 2>&1) \
   || fail "--print-body should succeed, got: $out"
-echo "$out" | grep -q '"totalBudget":100' || fail "--print-body missing totalBudget: $out"
-echo "$out" | grep -q '"actionType":"LIKE"' || fail "--print-body missing LIKE action: $out"
-echo "$out" | grep -q "expiresInHours" && fail "--print-body should NOT include expiresInHours by default: $out"
-pass "--print-body default (no expiresInHours)"
+echo "$out" | grep -q '"targetUrl":"URL"'    || fail "--print-body missing targetUrl: $out"
+echo "$out" | grep -q '"actionType":"LIKE"'  || fail "--print-body missing LIKE: $out"
+echo "$out" | grep -q '"A":5'                || fail "--print-body missing A:5: $out"
+echo "$out" | grep -q '"B":10'               || fail "--print-body missing B:10: $out"
+echo "$out" | grep -q '"actionType":"RT"'    || fail "--print-body missing RT: $out"
+echo "$out" | grep -q '"expiresInHours":4'   || fail "--print-body missing expiresInHours:4: $out"
+echo "$out" | grep -q 'totalBudget'  && fail "--print-body must NOT include totalBudget: $out"
+echo "$out" | grep -q 'targetCount'  && fail "--print-body must NOT include targetCount: $out"
+echo "$out" | grep -q '"mode"'       && fail "--print-body must NOT include mode: $out"
+echo "$out" | grep -q 'targetTiers'  && fail "--print-body must NOT include targetTiers: $out"
+pass "--print-body happy path"
 
+# --- --print-body without --expires-in-hours ---
 out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
-  campaigns create-engagement --url https://x.com/x/status/1 --budget 100 --like 5 --print-body --expires-in-hours 4 2>&1) \
-  || fail "--print-body with expires should succeed, got: $out"
-echo "$out" | grep -q '"expiresInHours":4' || fail "--print-body missing expiresInHours:4: $out"
-pass "--print-body with --expires-in-hours"
+  campaigns create-engagement \
+  --url https://x.com/x/status/1 \
+  --action LIKE:A=5 \
+  --print-body 2>&1) \
+  || fail "--print-body (no expires) should succeed, got: $out"
+echo "$out" | grep -q 'expiresInHours' && fail "--print-body should NOT include expiresInHours by default: $out"
+pass "--print-body default (no expiresInHours)"
 
 echo "ALL SMOKE TESTS PASSED"

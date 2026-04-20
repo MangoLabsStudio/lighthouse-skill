@@ -6,17 +6,25 @@ BASE="${LIGHTHOUSE_API_BASE:-https://service.lhdao.top/open-api/v1}"
 die() { echo "error: $*" >&2; exit 1; }
 
 is_nonneg_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
-is_nonneg_num() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+is_pos_int()    { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]; }
 
 usage() {
   cat <<'USAGE'
 Usage:
   lighthouse balance
+  lighthouse pricing
   lighthouse campaigns list [--status ACTIVE|PAUSED|ENDED|CLOSED] [--page N] [--page-size N]
   lighthouse campaigns get <id>
-  lighthouse campaigns create-engagement --url <tweet-url> --budget <lux> \
-     [--like N] [--rt N] [--comment N] [--follow N] [--comment-like N] \
-     [--mode OPEN|INVITE] [--tiers S,A,B] [--expires-in-hours N] [--print-body]
+  lighthouse campaigns create-engagement \
+     --url <tweet-url> \
+     --action TYPE:TIER=N,TIER=N,... [--action TYPE:...] ... \
+     [--expires-in-hours N] [--print-body]
+
+Action spec:
+  TYPE is one of LIKE|RT|COMMENT|FOLLOW|COMMENT_LIKE.
+  TIER is one of A|B|C|D|E. Slot count must be a non-negative integer.
+  Example: --action LIKE:A=5,B=10 --action RT:A=3
+  Mutex: COMMENT_LIKE cannot be combined with LIKE or COMMENT.
 
 Env:
   LIGHTHOUSE_API_KEY   required, must start with "lh_live_"
@@ -48,10 +56,54 @@ req() {
   fi
 }
 
+parse_action() {
+  # Input: $1 like "LIKE:A=5,B=10"
+  # Appends one action object to global actions_json.
+  local spec="$1"
+  [[ "$spec" == *:* ]] || die "invalid --action (expected TYPE:TIER=N,...): $spec"
+  local type="${spec%%:*}"
+  local slots="${spec#*:}"
+  case "$type" in
+    LIKE|RT|COMMENT|FOLLOW|COMMENT_LIKE) ;;
+    *) die "invalid action type: $type (expected LIKE|RT|COMMENT|FOLLOW|COMMENT_LIKE)";;
+  esac
+  [ -n "$slots" ] || die "--action $type: empty tier list"
+
+  local slots_obj='{}'
+  local action_total=0
+  IFS=',' read -ra pairs <<<"$slots"
+  for p in "${pairs[@]}"; do
+    [ -n "$p" ] || die "--action $type: empty tier pair"
+    [[ "$p" == *=* ]] || die "--action $type: invalid pair '$p' (expected TIER=N)"
+    local k="${p%%=*}" v="${p#*=}"
+    case "$k" in
+      A|B|C|D|E) ;;
+      *) die "invalid tier: $k (expected A|B|C|D|E; S is not allowed)";;
+    esac
+    is_nonneg_int "$v" || die "slot count for $type:$k must be non-negative integer, got: $v"
+    # Duplicate tiers within one action: later value overrides (jq + : object merge).
+    slots_obj=$(jq -c --arg k "$k" --argjson v "$v" '. + {($k): $v}' <<<"$slots_obj")
+    action_total=$((action_total + v))
+  done
+
+  total_slots=$((total_slots + action_total))
+  case "$type" in
+    LIKE|COMMENT) has_like_or_comment=1;;
+    COMMENT_LIKE) has_comment_like=1;;
+  esac
+
+  local one
+  one=$(jq -nc --arg t "$type" --argjson slots "$slots_obj" '{actionType:$t, tierSlots:$slots}')
+  actions_json=$(jq -c --argjson a "$one" '. + [$a]' <<<"$actions_json")
+}
+
 cmd="$1"; shift
 case "$cmd" in
   balance)
     req GET /balance | jq .
+    ;;
+  pricing)
+    req GET /pricing | jq .
     ;;
   campaigns)
     sub="${1:-}"; shift || true
@@ -80,64 +132,33 @@ case "$cmd" in
         req GET "/campaigns/$id" | jq .
         ;;
       create-engagement)
-        url="" budget="" like=0 rt=0 comment=0 follow=0 clike=0
-        mode="OPEN" tiers="" expires="" print_body=0
+        url="" expires="" print_body=0
+        actions_json='[]'
+        total_slots=0
+        has_like_or_comment=0
+        has_comment_like=0
         while [ $# -gt 0 ]; do
           case "$1" in
             --url) url="$2"; shift 2;;
-            --budget) budget="$2"; shift 2;;
-            --like)
-              is_nonneg_int "$2" || die "--like must be a non-negative integer, got: $2"
-              like="$2"; shift 2;;
-            --rt)
-              is_nonneg_int "$2" || die "--rt must be a non-negative integer, got: $2"
-              rt="$2"; shift 2;;
-            --comment)
-              is_nonneg_int "$2" || die "--comment must be a non-negative integer, got: $2"
-              comment="$2"; shift 2;;
-            --follow)
-              is_nonneg_int "$2" || die "--follow must be a non-negative integer, got: $2"
-              follow="$2"; shift 2;;
-            --comment-like)
-              is_nonneg_int "$2" || die "--comment-like must be a non-negative integer, got: $2"
-              clike="$2"; shift 2;;
-            --mode) mode="$2"; shift 2;;
-            --tiers) tiers="$2"; shift 2;;
+            --action)
+              [ $# -ge 2 ] || die "--action requires a value"
+              parse_action "$2"; shift 2;;
             --expires-in-hours)
-              is_nonneg_int "$2" || die "--expires-in-hours must be a non-negative integer, got: $2"
+              is_pos_int "$2" || die "--expires-in-hours must be a positive integer, got: $2"
               expires="$2"; shift 2;;
             --print-body) print_body=1; shift;;
             *) die "unknown arg: $1";;
           esac
         done
-        [ -n "$url" ] && [ -n "$budget" ] || die "--url and --budget required"
-        is_nonneg_num "$budget" || die "--budget must be a non-negative number, got: $budget"
-        case "$mode" in OPEN|INVITE) ;; *) die "--mode must be OPEN or INVITE";; esac
-        tiers_json="null"
-        if [ -n "$tiers" ]; then
-          IFS=',' read -ra _ts <<<"$tiers"
-          for t in "${_ts[@]}"; do
-            case "$t" in S|A|B|C|D|E) ;; *) die "invalid tier: $t (expected S/A/B/C/D/E)";; esac
-          done
-          tiers_json=$(jq -nc --arg t "$tiers" '$t | split(",")')
+        [ -n "$url" ] || die "--url is required"
+        [ "$(jq 'length' <<<"$actions_json")" -gt 0 ] || die "at least one --action is required"
+        [ "$total_slots" -gt 0 ] || die "total slots must be > 0 across all --action"
+        if [ "$has_comment_like" -eq 1 ] && [ "$has_like_or_comment" -eq 1 ]; then
+          die "COMMENT_LIKE cannot be combined with LIKE or COMMENT"
         fi
-        actions=$(jq -nc \
-          --argjson like "$like" --argjson rt "$rt" --argjson comment "$comment" \
-          --argjson follow "$follow" --argjson clike "$clike" '
-          [
-            {actionType:"LIKE",targetCount:$like},
-            {actionType:"RT",targetCount:$rt},
-            {actionType:"COMMENT",targetCount:$comment},
-            {actionType:"FOLLOW",targetCount:$follow},
-            {actionType:"COMMENT_LIKE",targetCount:$clike}
-          ] | map(select(.targetCount > 0))')
-        [ "$(jq 'length' <<<"$actions")" -gt 0 ] \
-          || die "at least one of --like/--rt/--comment/--follow/--comment-like must be > 0"
         body=$(jq -nc \
-          --arg url "$url" --argjson budget "$budget" --arg mode "$mode" \
-          --argjson actions "$actions" --argjson tiers "$tiers_json" --arg expires "$expires" '
-          {targetUrl:$url,actions:$actions,totalBudget:$budget,mode:$mode}
-          + (if $tiers then {targetTiers:$tiers} else {} end)
+          --arg url "$url" --argjson actions "$actions_json" --arg expires "$expires" '
+          {targetUrl:$url, actions:$actions}
           + (if $expires == "" then {} else {expiresInHours:($expires|tonumber)} end)')
         if [ "$print_body" -eq 1 ]; then
           echo "$body"
