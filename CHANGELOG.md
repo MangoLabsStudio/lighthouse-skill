@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.1 — 2026-04-19
+
+### Added
+- "Getting an API key" guidance — docs now tell users to apply via the Lighthouse official website.
+
+### Changed
+- Dropped user-facing `LIGHTHOUSE_API_BASE` configuration from docs and help text — production is the only supported environment.
+- curl examples in SKILL.md and api-reference.md use the literal production URL.
+
+### Internal
+- `scripts/lighthouse` still honors `LIGHTHOUSE_API_BASE` as an undocumented override, preserved for future domain changes.
+
 ## v0.2.0 — 2026-04-19
 
 ### Added

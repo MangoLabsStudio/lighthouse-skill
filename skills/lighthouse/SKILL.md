@@ -11,10 +11,9 @@ Before calling any Lighthouse endpoint, make sure the environment is set up corr
 
 ### Environment setup
 
-The skill reads two environment variables:
+The skill reads one environment variable:
 
-- `LIGHTHOUSE_API_KEY` **(required)** — the buyer's Open API key. Format `lh_live_...`. Get one from the Lighthouse admin panel.
-- `LIGHTHOUSE_API_BASE` **(optional)** — defaults to `https://service.lhdao.top/open-api/v1`. Usually unset.
+- `LIGHTHOUSE_API_KEY` **(required)** — the buyer's Open API key. Format `lh_live_...`. Apply for an API key through the Lighthouse official website.
 
 Example (user runs this in their own shell):
 
@@ -44,7 +43,7 @@ Run the bundled CLI wrapper:
 Or the equivalent curl:
 
 ```bash
-curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" "$LIGHTHOUSE_API_BASE/balance"
+curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" "https://service.lhdao.top/open-api/v1/balance"
 ```
 
 Expected output — a JSON object containing at least:
@@ -310,35 +309,35 @@ When the script is not installed, use `curl` directly. Always pass the key via t
 
 ```bash
 curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
-     "$LIGHTHOUSE_API_BASE/balance"
+     "https://service.lhdao.top/open-api/v1/balance"
 ```
 
 **GET `/pricing`** — authoritative tier × action price table + fee rate:
 
 ```bash
 curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
-     "$LIGHTHOUSE_API_BASE/pricing"
+     "https://service.lhdao.top/open-api/v1/pricing"
 ```
 
 **GET `/campaigns`** — list owned campaigns (paginated):
 
 ```bash
 curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
-     "$LIGHTHOUSE_API_BASE/campaigns?status=ACTIVE&page=1&pageSize=20"
+     "https://service.lhdao.top/open-api/v1/campaigns?status=ACTIVE&page=1&pageSize=20"
 ```
 
 **GET `/campaigns/{id}`** — inspect a campaign's status and fill progress:
 
 ```bash
 curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
-     "$LIGHTHOUSE_API_BASE/campaigns/<campaign-id>"
+     "https://service.lhdao.top/open-api/v1/campaigns/<campaign-id>"
 ```
 
 **POST `/campaigns/engagement`** — create one Engagement campaign per action, atomically. Body is `{targetUrl, actions, expiresInHours?, releaseCurve?, releaseDuration?}`. The server computes budget and fee from each `actions[i].tierSlots` × the pricing table — you do NOT send a budget. Response is the batch shape (`campaigns[]` + aggregate cost):
 
 ```bash
 # Minimal request — one action, defaults for everything else.
-curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+curl -sS -X POST "https://service.lhdao.top/open-api/v1/campaigns/engagement" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -349,7 +348,7 @@ curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
   }'
 
 # Multi-action request with tuned release schedule — creates N campaigns atomically.
-curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+curl -sS -X POST "https://service.lhdao.top/open-api/v1/campaigns/engagement" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

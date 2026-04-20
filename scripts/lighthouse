@@ -35,7 +35,6 @@ Release scheduling (optional; backend defaults to FLAT / 60 min):
 
 Env:
   LIGHTHOUSE_API_KEY   required, must start with "lh_live_"
-  LIGHTHOUSE_API_BASE  optional, default https://service.lhdao.top/open-api/v1
 
 Requires: curl, jq.
 USAGE

@@ -14,7 +14,6 @@ Production: `https://service.lhdao.top/open-api/v1`
 Every example below assumes the caller has exported:
 
 ```bash
-export LIGHTHOUSE_API_BASE="https://service.lhdao.top/open-api/v1"
 export LIGHTHOUSE_API_KEY="lh_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
@@ -89,7 +88,7 @@ Return the LUX balances for the user who owns the API key.
 ### curl
 
 ```bash
-curl -sS "$LIGHTHOUSE_API_BASE/balance" \
+curl -sS "https://service.lhdao.top/open-api/v1/balance" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY"
 ```
 
@@ -126,7 +125,7 @@ same table.
 ### curl
 
 ```bash
-curl -sS "$LIGHTHOUSE_API_BASE/pricing" \
+curl -sS "https://service.lhdao.top/open-api/v1/pricing" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY"
 ```
 
@@ -232,7 +231,7 @@ The server will reject the request with HTTP 400
 ### curl
 
 ```bash
-curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+curl -sS -X POST "https://service.lhdao.top/open-api/v1/campaigns/engagement" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -340,7 +339,7 @@ completion counts.
 ### curl
 
 ```bash
-curl -sS "$LIGHTHOUSE_API_BASE/campaigns/clxyz123abc" \
+curl -sS "https://service.lhdao.top/open-api/v1/campaigns/clxyz123abc" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY"
 ```
 
@@ -406,7 +405,7 @@ first.
 ### curl
 
 ```bash
-curl -sS "$LIGHTHOUSE_API_BASE/campaigns?status=ACTIVE&page=1&pageSize=20" \
+curl -sS "https://service.lhdao.top/open-api/v1/campaigns?status=ACTIVE&page=1&pageSize=20" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY"
 ```
 

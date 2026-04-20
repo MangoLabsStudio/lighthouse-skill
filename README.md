@@ -45,6 +45,8 @@ git clone https://github.com/MangoLabsStudio/lighthouse-skill.git ~/.claude/skil
 
 ### After install (all options)
 
+Apply for an API key through the Lighthouse official website, then export it in your own shell:
+
 ```bash
 export LIGHTHOUSE_API_KEY=lh_live_...
 ~/.claude/skills/lighthouse/scripts/lighthouse balance   # verify setup
