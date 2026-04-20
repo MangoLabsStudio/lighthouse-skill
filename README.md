@@ -36,9 +36,9 @@ Expected output is a JSON object containing `oldLux`, `newLux`, `totalLux`. A `4
 
 ## Demo
 
-- Buying engagement — screenshot pending; see `examples/buy-engagement.md` for the full dialogue.
-- Tracking campaigns — screenshot pending; see `examples/track-campaign.md` for the full dialogue.
-- Batch planning (safety in action) — screenshot pending; see `examples/batch-planning.md` for the full dialogue.
+- Buying engagement — screenshot pending; see `skills/lighthouse/examples/buy-engagement.md` for the full dialogue.
+- Tracking campaigns — screenshot pending; see `skills/lighthouse/examples/track-campaign.md` for the full dialogue.
+- Batch planning (safety in action) — screenshot pending; see `skills/lighthouse/examples/batch-planning.md` for the full dialogue.
 
 ## Safety notes
 
@@ -49,14 +49,14 @@ Expected output is a JSON object containing `oldLux`, `newLux`, `totalLux`. A `4
 
 ## Links
 
-- Full skill behavior: [`SKILL.md`](SKILL.md)
-- API reference: [`references/api-reference.md`](references/api-reference.md)
-- Pricing & tiers: [`references/pricing-and-tiers.md`](references/pricing-and-tiers.md)
-- Action combinations: [`references/action-combinations.md`](references/action-combinations.md)
+- Full skill behavior: [`skills/lighthouse/SKILL.md`](skills/lighthouse/SKILL.md)
+- API reference: [`skills/lighthouse/references/api-reference.md`](skills/lighthouse/references/api-reference.md)
+- Pricing & tiers: [`skills/lighthouse/references/pricing-and-tiers.md`](skills/lighthouse/references/pricing-and-tiers.md)
+- Action combinations: [`skills/lighthouse/references/action-combinations.md`](skills/lighthouse/references/action-combinations.md)
 - Examples:
-  - [`examples/buy-engagement.md`](examples/buy-engagement.md)
-  - [`examples/track-campaign.md`](examples/track-campaign.md)
-  - [`examples/batch-planning.md`](examples/batch-planning.md)
+  - [`skills/lighthouse/examples/buy-engagement.md`](skills/lighthouse/examples/buy-engagement.md)
+  - [`skills/lighthouse/examples/track-campaign.md`](skills/lighthouse/examples/track-campaign.md)
+  - [`skills/lighthouse/examples/batch-planning.md`](skills/lighthouse/examples/batch-planning.md)
 
 ## License
 
