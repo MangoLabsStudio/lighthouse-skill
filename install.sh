@@ -40,6 +40,5 @@ fi
 info "installed at $DEST"
 info "next: export LIGHTHOUSE_API_KEY=lh_live_... (get one from the Lighthouse admin)"
 info "verify:  $DEST/scripts/lighthouse balance"
-info "dev env: export LIGHTHOUSE_API_BASE=https://service.lhdaobeta.top/open-api/v1"
 echo
 info "SKILL.md lives at $DEST/skills/lighthouse/SKILL.md"

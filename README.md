@@ -54,12 +54,6 @@ Expected output is a JSON object containing `oldLux`, `newLux`, `totalLux`. A `4
 
 The API key is a bearer credential — export it in your own shell, never paste it into chat.
 
-**Dev env:** the default API base is production (`https://service.lhdao.top/open-api/v1`). To hit the beta backend instead:
-
-```bash
-export LIGHTHOUSE_API_BASE=https://service.lhdaobeta.top/open-api/v1
-```
-
 ## Requirements
 
 - `curl`, `jq`, `git`

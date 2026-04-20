@@ -13,15 +13,13 @@ Before calling any Lighthouse endpoint, make sure the environment is set up corr
 
 The skill reads two environment variables:
 
-- `LIGHTHOUSE_API_KEY` **(required)** — the buyer's Open API key. Format `lh_live_...`. Get one from the Lighthouse admin panel. (Dev and production use the same prefix; switch environments via `LIGHTHOUSE_API_BASE`.)
-- `LIGHTHOUSE_API_BASE` **(optional)** — defaults to production `https://service.lhdao.top/open-api/v1`. For the dev environment use `https://service.lhdaobeta.top/open-api/v1`.
+- `LIGHTHOUSE_API_KEY` **(required)** — the buyer's Open API key. Format `lh_live_...`. Get one from the Lighthouse admin panel.
+- `LIGHTHOUSE_API_BASE` **(optional)** — defaults to `https://service.lhdao.top/open-api/v1`. Usually unset.
 
 Example (user runs this in their own shell):
 
 ```bash
 export LIGHTHOUSE_API_KEY=lh_live_xxxxxxxxxxxxxxxxxxxxxxxx
-# optional — only if targeting dev
-export LIGHTHOUSE_API_BASE=https://service.lhdaobeta.top/open-api/v1
 ```
 
 ### Critical safety rule — API key handling

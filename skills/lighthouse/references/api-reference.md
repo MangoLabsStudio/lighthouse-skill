@@ -9,10 +9,7 @@ this document and the source disagree, the source wins.
 
 ### Base URL
 
-| Environment | Base URL |
-|-------------|----------|
-| Production  | `https://service.lhdao.top/open-api/v1` |
-| Dev / Beta  | `https://service.lhdaobeta.top/open-api/v1` |
+Production: `https://service.lhdao.top/open-api/v1`
 
 Every example below assumes the caller has exported:
 
