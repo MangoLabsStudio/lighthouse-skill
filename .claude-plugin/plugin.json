@@ -1,0 +1,12 @@
+{
+  "name": "lighthouse-skill",
+  "version": "0.2.0",
+  "description": "Lighthouse Open API skill for AI Agents — buy Twitter engagement with mandatory safety confirmation",
+  "author": {
+    "name": "Lighthouse / MangoLabs Studio",
+    "url": "https://github.com/MangoLabsStudio"
+  },
+  "homepage": "https://github.com/MangoLabsStudio/lighthouse-skill",
+  "license": "MIT",
+  "keywords": ["lighthouse", "twitter", "engagement", "kol", "lux", "open-api", "agent"]
+}
