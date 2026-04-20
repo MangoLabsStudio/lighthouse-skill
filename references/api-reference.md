@@ -187,6 +187,8 @@ resulting `totalCost` is debited from the user's LUX balance.
 | `actions[].actionType` | enum | yes | One of `LIKE`, `RT`, `COMMENT`, `FOLLOW`, `COMMENT_LIKE`. |
 | `actions[].tierSlots` | object | no | Map of tier → slot count. Keys must be in `{A, B, C, D, E}`; values are non-negative integers. Missing tiers count as 0. Absent / null / omitted is treated as all-zero for that action. |
 | `expiresInHours` | integer (≥ 1) | no | Campaign lifetime in hours. Default `8`. |
+| `releaseCurve` | enum | no | Slot release curve applied to every sub-campaign. One of `FLAT`, `PARABOLIC`, `INCREASING`, `DECREASING`, `BATCH`. Default `FLAT`. |
+| `releaseDuration` | integer (1–1440) | no | Minutes from campaign start until all slots are unlocked. Default `60`. |
 
 ### Validation rules (from DTO validators)
 
@@ -202,6 +204,19 @@ resulting `totalCost` is debited from the user's LUX balance.
   `COMMENT_LIKE cannot be combined with standalone LIKE or COMMENT`.
   (`COMMENT_LIKE` alone, or combined with `RT`/`FOLLOW`, is fine.)
 - **`expiresInHours`** — optional; if present, must be ≥ 1.
+- **`releaseCurve`** — optional; if present, must be one of
+  `FLAT | PARABOLIC | INCREASING | DECREASING | BATCH`.
+- **`releaseDuration`** — optional; if present, must be an integer in
+  `[1, 1440]`.
+
+### Batch behavior
+
+The server creates **one separate campaign per action** atomically inside a
+single database transaction. If any sub-create fails (validation, insufficient
+balance, internal error), **all sub-creates are rolled back** — the caller
+never ends up with a partial set. The response therefore returns an array of
+campaigns plus aggregate cost across all of them; see the response shape
+below.
 
 ### Example: compute `totalCost` before posting
 
@@ -229,54 +244,85 @@ curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
       { "actionType": "LIKE", "tierSlots": { "A": 5, "B": 10 } },
       { "actionType": "RT",   "tierSlots": { "A": 2 } }
     ],
-    "expiresInHours": 8
+    "expiresInHours": 8,
+    "releaseCurve": "FLAT",
+    "releaseDuration": 60
   }'
 ```
 
-### Response 201 (`CampaignResponseDto`)
+### Response 201 (`CreateEngagementBatchResponseDto`)
+
+The endpoint now returns a **batch shape**: one `CampaignResponseDto` per
+action in the request (each sub-campaign contains exactly one action),
+together with aggregate cost fields across all sub-campaigns.
 
 ```json
 {
-  "id": "clxyz123abc",
-  "status": "ACTIVE",
-  "type": "ENGAGEMENT",
-  "targetUrl": "https://x.com/user/status/1234567890",
-  "totalBudget": 45.0,
-  "platformFee": 2.25,
-  "totalCost": 47.25,
-  "actions": [
+  "campaigns": [
     {
-      "actionType": "LIKE",
-      "baseReward": 0.4,
-      "targetCount": 15,
-      "tierSlots": { "A": 5, "B": 10 }
+      "id": "clxyz123abc",
+      "status": "ACTIVE",
+      "type": "ENGAGEMENT",
+      "targetUrl": "https://x.com/user/status/1234567890",
+      "totalBudget": 5.0,
+      "platformFee": 0.25,
+      "totalCost": 5.25,
+      "actions": [
+        {
+          "actionType": "LIKE",
+          "baseReward": 0.4,
+          "targetCount": 15,
+          "tierSlots": { "A": 5, "B": 10 }
+        }
+      ],
+      "createdAt": "2026-04-20T10:30:00.000Z",
+      "expiresAt": "2026-04-20T18:30:00.000Z"
     },
     {
-      "actionType": "RT",
-      "baseReward": 20,
-      "targetCount": 2,
-      "tierSlots": { "A": 2 }
+      "id": "clxyz456def",
+      "status": "ACTIVE",
+      "type": "ENGAGEMENT",
+      "targetUrl": "https://x.com/user/status/1234567890",
+      "totalBudget": 40.0,
+      "platformFee": 2.0,
+      "totalCost": 42.0,
+      "actions": [
+        {
+          "actionType": "RT",
+          "baseReward": 20,
+          "targetCount": 2,
+          "tierSlots": { "A": 2 }
+        }
+      ],
+      "createdAt": "2026-04-20T10:30:00.000Z",
+      "expiresAt": "2026-04-20T18:30:00.000Z"
     }
   ],
-  "createdAt": "2026-04-20T10:30:00.000Z",
-  "expiresAt": "2026-04-20T18:30:00.000Z"
+  "totalBudget": 45.0,
+  "platformFee": 2.25,
+  "totalCost": 47.25
 }
 ```
 
 | Response field | Type | Notes |
 |----------------|------|-------|
-| `id` | string | Campaign ID. Use this for follow-up `GET` calls. |
-| `status` | enum | One of `ACTIVE`, `PAUSED`, `ENDED`, `CLOSED`. Newly created campaigns start in `ACTIVE`. |
-| `type` | string | Always `ENGAGEMENT` for this endpoint. |
-| `targetUrl` | string? | Echo of the request URL. |
-| `totalBudget` | number | Sum of `slots × price` across all actions, exclusive of fee. |
-| `platformFee` | number? | 5% of `totalBudget`. Returned on create; may be omitted on read responses. |
-| `totalCost` | number? | `totalBudget + platformFee`. Returned on create; this is the amount debited from LUX. |
-| `actions[].actionType` | string | Echoed from request. |
-| `actions[].baseReward` | number | Per-completion reward (A-tier price). |
-| `actions[].targetCount` | integer | Total slots across all tiers for this action. |
-| `actions[].tierSlots` | object? | Echo of request tier breakdown — returned on create. |
-| `createdAt` / `expiresAt` | ISO-8601 string | UTC timestamps. |
+| `campaigns[]` | `CampaignResponseDto[]` | One entry per action in the request. Each has exactly one `actions[0]` whose `tierSlots` echoes the request slice for that action. |
+| `campaigns[].id` | string | Sub-campaign ID. Use this for follow-up `GET` calls. |
+| `campaigns[].status` | enum | `ACTIVE` / `PAUSED` / `ENDED` / `CLOSED`. Newly created sub-campaigns start `ACTIVE`. |
+| `campaigns[].type` | string | Always `ENGAGEMENT` for this endpoint. |
+| `campaigns[].targetUrl` | string? | Echo of the request URL (same across sub-campaigns). |
+| `campaigns[].totalBudget` | number | `slots × price` for this sub-campaign's single action, exclusive of fee. |
+| `campaigns[].platformFee` | number? | 5% of this sub-campaign's `totalBudget`. |
+| `campaigns[].totalCost` | number? | `totalBudget + platformFee` for this sub-campaign. |
+| `campaigns[].actions[0].actionType` / `baseReward` / `targetCount` / `tierSlots` | — | Same semantics as before; the array now always has length 1. |
+| `campaigns[].createdAt` / `expiresAt` | ISO-8601 string | UTC timestamps. |
+| `totalBudget` (top-level) | number | Sum of `campaigns[].totalBudget`. |
+| `platformFee` (top-level) | number | Sum of `campaigns[].platformFee`. |
+| `totalCost` (top-level) | number | Sum of `campaigns[].totalCost`. This is the total amount debited from LUX. |
+
+**Atomicity.** All sub-campaigns are created inside one transaction. If any
+fail, none are persisted. Agents should therefore report back "N campaigns
+created" using `campaigns.length`, not assume a single campaign was created.
 
 ---
 
@@ -419,7 +465,7 @@ array).
 | 401  | `API_KEY_EXPIRED`       | `ApiKeyGuard` | `expiresAt` has passed. | Stop. Ask the user to rotate the key. |
 | 403  | `PERMISSION_DENIED`     | `ApiKeyGuard` | Key lacks a required scope (`balance:read`, `campaign:read`, `campaign:create`). | Stop. Tell the user which scope is needed. |
 | 429  | `RATE_LIMIT_EXCEEDED`   | `OpenApiRateLimitInterceptor` | Per-key quota exhausted. Response includes `X-RateLimit-*` headers. | Wait until `X-RateLimit-Reset`, then retry. Back off on repeated hits. |
-| 400  | _(no code)_             | `class-validator` | DTO validation. `message` is an array of human-readable strings, e.g. `"targetUrl must be a valid URL"`, `"EMPTY_TIER_SLOTS: at least one action must have positive tier slots"`, `"COMMENT_LIKE cannot be combined with standalone LIKE or COMMENT"`. | Read every entry of `message`. Fix the specific field; do not retry unchanged. |
+| 400  | _(no code)_             | `class-validator` | DTO validation. `message` is an array of human-readable strings, e.g. `"targetUrl must be a valid URL"`, `"EMPTY_TIER_SLOTS: <ACTION>"` (match by the literal `EMPTY_TIER_SLOTS:` prefix — raised when one or more actions have all-zero tierSlots), `"COMMENT_LIKE cannot be combined with standalone LIKE or COMMENT"`. | Read every entry of `message`. Fix the specific field; do not retry unchanged. |
 | 400  | _(no code)_             | Service layer | `message === "Insufficient LUX balance"` — budget exceeds balance. | Call `GET /balance`, reduce `tierSlots`, or ask the user to top up. Do not retry the identical request. |
 | 404  | _(no code)_             | Service layer | Campaign not found, or not owned by this API key's user. | Verify the ID; do not retry. |
 
