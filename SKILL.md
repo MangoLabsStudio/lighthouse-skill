@@ -13,7 +13,7 @@ Before calling any Lighthouse endpoint, make sure the environment is set up corr
 
 The skill reads two environment variables:
 
-- `LIGHTHOUSE_API_KEY` **(required)** — the buyer's Open API key. Format `lh_live_...` (production) or `lh_test_...` (dev). Get one from the Lighthouse admin panel.
+- `LIGHTHOUSE_API_KEY` **(required)** — the buyer's Open API key. Format `lh_live_...`. Get one from the Lighthouse admin panel. (Dev and production use the same prefix; switch environments via `LIGHTHOUSE_API_BASE`.)
 - `LIGHTHOUSE_API_BASE` **(optional)** — defaults to production `https://service.lhdao.top/open-api/v1`. For the dev environment use `https://service.lhdaobeta.top/open-api/v1`.
 
 Example (user runs this in their own shell):
@@ -28,7 +28,7 @@ export LIGHTHOUSE_API_BASE=https://service.lhdaobeta.top/open-api/v1
 
 **Never ask the user to paste the API key into chat.** The key is a bearer credential; once it appears in the transcript it is effectively leaked (transcripts are logged, synced, and may be shared).
 
-If `$LIGHTHOUSE_API_KEY` is missing, empty, or does not start with `lh_live_` / `lh_test_`:
+If `$LIGHTHOUSE_API_KEY` is missing, empty, or does not start with `lh_live_`:
 
 1. Tell the user the key is missing / malformed.
 2. Ask them to `export LIGHTHOUSE_API_KEY=...` in their own shell.
