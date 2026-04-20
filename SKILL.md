@@ -220,32 +220,37 @@ Prefer the bundled CLI wrapper, fall back to `curl` when the script is not avail
 
 ### Preferred: `./scripts/lighthouse`
 
-The wrapper is shorter, safer, and performs local validation (env-var presence, key prefix, basic request-shape checks) before hitting the network. Use it whenever `./scripts/lighthouse` exists in the working tree.
+The wrapper is shorter and performs local validation (env-var presence, `lh_live_` prefix check, tier-key whitelist, `COMMENT_LIKE` mutex, non-empty-slots rule) before hitting the network. Use it whenever `./scripts/lighthouse` exists in the working tree.
 
 ```bash
 ./scripts/lighthouse balance
+./scripts/lighthouse pricing
 ./scripts/lighthouse campaigns list [--status ACTIVE|PAUSED|ENDED|CLOSED] [--page N] [--page-size N]
 ./scripts/lighthouse campaigns get <campaign-id>
 ./scripts/lighthouse campaigns create-engagement \
-    --url <tweet-url> --budget <lux> \
-    [--like N] [--rt N] [--comment N] [--follow N] [--comment-like N] \
-    [--mode OPEN|INVITE] [--tiers S,A,B] [--expires-in-hours N]
+    --url <tweet-url> \
+    --action TYPE:A=N,B=M[,C=P,D=Q,E=R] \
+    [--action TYPE:...] \
+    [--expires-in-hours N] [--print-body]
+```
+
+**Action spec format:** `TYPE:TIER=N,TIER=N,...` where `TYPE` is one of `LIKE|RT|COMMENT|FOLLOW|COMMENT_LIKE` and `TIER` is one of `A|B|C|D|E` (S is rejected client-side). Repeat `--action` to include multiple action types in one campaign.
+
+**`--print-body`** renders the JSON that would be POSTed and exits without calling the API. Use this to preview the exact request before spending LUX.
+
+Example — 100 A-tier likes + 50 B-tier likes + 3 A-tier RTs, default 8h expiry:
+
+```bash
+./scripts/lighthouse campaigns create-engagement \
+    --url https://x.com/user/status/123 \
+    --action LIKE:A=100,B=50 \
+    --action RT:A=3 \
+    --print-body
 ```
 
 ### Fallback: `curl`
 
-When the script is not installed (e.g. the user is running Lighthouse from a different checkout), use `curl` directly. Always pass the key via the `X-API-Key` header — **never** via URL query string, request body, or shell arg visible in `ps`.
-
-Generic template:
-
-```bash
-curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
-     -H "Content-Type: application/json" \
-     -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
-     -d '{...}'
-```
-
-One example per endpoint (brief — full schemas live in `references/api-reference.md`):
+When the script is not installed, use `curl` directly. Always pass the key via the `X-API-Key` header — **never** via URL query string, request body, or shell arg visible in `ps`.
 
 **GET `/balance`** — current wallet:
 
@@ -261,19 +266,11 @@ curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
      "$LIGHTHOUSE_API_BASE/pricing"
 ```
 
-**POST `/campaigns/engagement`** — create an Engagement campaign:
+**GET `/campaigns`** — list owned campaigns (paginated):
 
 ```bash
 curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
-     -H "Content-Type: application/json" \
-     -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
-     -d '{
-       "targetUrl": "https://x.com/foo/status/123",
-       "actions": [
-         { "actionType": "LIKE", "tierSlots": { "A": 100 } }
-       ],
-       "expiresInHours": 8
-     }'
+     "$LIGHTHOUSE_API_BASE/campaigns?status=ACTIVE&page=1&pageSize=20"
 ```
 
 **GET `/campaigns/{id}`** — inspect a campaign's status and fill progress:
@@ -283,9 +280,26 @@ curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
      "$LIGHTHOUSE_API_BASE/campaigns/<campaign-id>"
 ```
 
+**POST `/campaigns/engagement`** — create an Engagement campaign. Body is `{targetUrl, actions, expiresInHours?}`. The server computes budget and fee from `actions[].tierSlots` × the pricing table — you do NOT send a budget:
+
+```bash
+curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+  -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "targetUrl": "https://x.com/user/status/123",
+    "actions": [
+      {"actionType": "LIKE", "tierSlots": {"A": 50, "B": 100}}
+    ],
+    "expiresInHours": 8
+  }'
+```
+
+Omit `expiresInHours` to use the backend default (8h).
+
 ### Secrets hygiene
 
 - **Never** echo, log, or commit the value of `$LIGHTHOUSE_API_KEY`. Reference it by variable name only.
-- Do not include the key in error messages, diagnostic dumps, or chat output — even partially redacted.
-- If the user accidentally pastes their key into chat, tell them to rotate it immediately (the transcript is already logged).
+- Do not include the key in error messages, diagnostic dumps, chat output, or commit messages — even partially redacted.
+- If the user accidentally pastes their key into chat, tell them to rotate it via the admin Web UI immediately (the transcript is already logged).
 
