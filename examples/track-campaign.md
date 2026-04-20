@@ -25,12 +25,12 @@ $ ./scripts/lighthouse campaigns list --status ACTIVE
       "status": "ACTIVE",
       "type": "ENGAGEMENT",
       "targetUrl": "https://x.com/foo/status/123",
-      "totalBudget": 170,
-      "consumedBudget": 62,
-      "remainingPool": 108,
+      "totalBudget": 110,
+      "consumedBudget": 58,
+      "remainingPool": 52,
       "actions": [
         { "actionType": "LIKE", "baseReward": 0.4, "targetCount": 50, "completedCount": 45 },
-        { "actionType": "RT",   "baseReward": 20,  "targetCount": 20, "completedCount": 2  }
+        { "actionType": "RT",   "baseReward": 20,  "targetCount": 5,  "completedCount": 2  }
       ],
       "createdAt": "2026-04-19T09:12:03.000Z",
       "expiresAt": "2026-04-19T17:12:03.000Z"
@@ -75,7 +75,7 @@ $ ./scripts/lighthouse campaigns list --status ACTIVE
 
 | # | 目标 | 动作进度 | 预算使用 | 到期 |
 |---|------|---------|---------|------|
-| 1 | foo/status/123 | LIKE 45/50 (90%)·RT 2/20 (10%) | 62 / 170 LUX | 17:12 UTC |
+| 1 | foo/status/123 | LIKE 45/50 (90%)·RT 2/5 (40%) | 58 / 110 LUX | 17:12 UTC |
 | 2 | bar/status/456 | LIKE 30/100 (30%)·FOLLOW 1/4 (25%) | 19 / 77 LUX | 18:45 UTC |
 | 3 | baz/status/789 | RT 0/15 (0%) | 0 / 300 LUX | 19:30 UTC |
 
