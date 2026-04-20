@@ -140,56 +140,64 @@ When ambiguity remains (e.g. "buy likes" with no count), **ask** — don't guess
 
 ## Mandatory Safety Flow
 
-> **You MUST execute steps 1–5 in order before any `POST /campaigns/engagement` call. No exceptions, no shortcuts.**
+> **You MUST execute steps 1–6 in order before any `POST /campaigns/engagement` call. No exceptions, no shortcuts.**
 
 This flow is not advisory. A LUX-spending call without this flow is a bug — the Agent is spending the buyer's money without confirmation.
 
-### The 7 steps
+### The steps
 
-1. **Call `GET /balance`, show the result to the user.** The user needs to see their current `newLux` balance before approving a spend.
+1. **Call `GET /balance`, show the result to the user.** Record `totalLux`. The buyer needs to see their current balance before approving a spend.
 
-2. **Compute `totalCost = totalBudget × 1.05`.** Break down `totalBudget` by action and tier, then add the 5% fee. Show your work — don't hand-wave the number.
+2. **Call `GET /pricing`.** Keep the `prices` table and `platformFeeRate` in memory for this session's cost calculations. Do not hard-code numbers — pricing is admin-editable.
 
-3. **Present a structured confirmation block to the user.** Use this exact fenced format:
+3. **Parse the user's intent and propose `actions[].tierSlots`** (see Business Guidance + `references/pricing-and-tiers.md` §4). If the intent is ambiguous — e.g. "buy likes" with no count, or a tier preference that conflicts with budget — **ASK, don't guess.**
+
+4. **Compute the cost locally and present a structured block** to the user. Use this exact shape:
 
    ```
    ─ Target tweet: <URL>
-   ─ Actions: LIKE×100, RT×50
-   ─ Budget: 100 LUX
-   ─ Platform fee: 5 LUX (5%)
-   ─ Total cost: 105 LUX
-   ─ Balance after: <balance minus 105> LUX
+   ─ Actions:
+     · LIKE → A:50, B:100 → 50×0.4 + 100×0.3 = 50 LUX
+     · RT   → A:3         → 3×20 = 60 LUX
+   ─ Subtotal: 110 LUX
+   ─ Platform fee (5%): 5.5 LUX
+   ─ Total cost: 115.5 LUX
+   ─ Balance after: <totalLux − 115.5> LUX
+   ─ Expiration: <default 8h | user-specified Nh>
    ```
 
-4. **Explicitly ask for confirmation:** "是否确认创建？(yes/no)" (or English equivalent: "Confirm creation? (yes/no)").
+   Show the per-action math. Don't hand-wave the numbers.
 
-5. **Only proceed if the user replies with a confirmation token:** `yes`, `确认`, `ok`, `确定`. Any ambiguous reply ("sure I guess", "let me think", "maybe", "…", a new question) → re-ask. Do NOT assume consent.
+5. **Explicitly ask for confirmation:** "是否确认创建？(yes/no)" or "Confirm creation? (yes/no)". Wait for the reply.
 
-6. **High-value guard.** If `totalBudget > 500 LUX`, include an extra warning line in the confirmation block, e.g.:
+6. **Only proceed on an explicit confirmation token:** `yes`, `确认`, `ok`, `确定`. Any ambiguous reply ("sure I guess", "let me think", "maybe", "…", a new question) → re-ask. Do NOT assume consent.
+
+   **High-value guard.** If `total_cost > 500 LUX`, include an extra warning line **before** the confirmation question:
 
    > ⚠️ This is a high-value investment. Please double-check the parameters.
 
    This is in addition to — not instead of — the normal confirmation.
 
-7. **Forbidden: looping or batch-creating campaigns without a separate confirmation per item.** If the user says "create these 5 campaigns," confirm each one individually, one balance check + one confirmation block + one explicit `yes` per campaign. Do not collapse them into a single "confirm all 5?" prompt.
+7. **Forbidden: looping or batch-creating campaigns without a separate confirmation per item.** If the user says "create these 5 campaigns," run steps 3–6 individually for each one. Do not collapse them into a single "confirm all 5?" prompt.
 
 ### Bad vs. Good Agent
 
 **Bad:**
 
 > User: "Buy 100 likes for https://x.com/foo/123"
-> Agent: *immediately calls `POST /campaigns/engagement` with a budget guess*
+> Agent: *immediately calls `POST /campaigns/engagement` with a guessed tierSlots*
 >
-> (This is wrong — no balance check, no cost breakdown, no confirmation. The Agent just spent the buyer's LUX without asking.)
+> (No balance check, no pricing fetch, no cost breakdown, no confirmation. The Agent just spent the buyer's LUX without asking.)
 
 **Good:**
 
 > User: "Buy 100 likes for https://x.com/foo/123"
-> Agent: Calls `GET /balance` → returns `newLux: 200`.
-> Computes `100 × 0.4 = 40 LUX` budget, `+ 5% fee = 42 LUX` total.
-> Presents the confirmation block (target, actions, budget, fee, total, balance after = 158 LUX). Waits.
+> Agent: Calls `GET /balance` → `totalLux: 200`. Calls `GET /pricing` → `LIKE.A = 0.4`.
+> Proposes `actions: [{ actionType: "LIKE", tierSlots: { A: 100 } }]` (quality-first default).
+> Computes: `computed_budget = 100 × 0.4 = 40.0`, `fee = 2.0`, `total_cost = 42.0`.
+> Presents the block (target, action math, subtotal, fee, total, balance after = 158 LUX, expiration: default 8h). Waits.
 > User: "confirm"
-> Agent: Calls `POST /campaigns/engagement`, returns the campaign ID and a link.
+> Agent: Calls `POST /campaigns/engagement` with `{targetUrl, actions}` (no `expiresInHours` — let default apply), returns the campaign ID and link.
 
 ## Error Handling
 
