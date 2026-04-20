@@ -72,81 +72,71 @@ Deeper reading (load on demand — the body of this skill stays self-contained):
 
 ## Business Guidance
 
-The following rules are IN-LINE (not in a reference file) because the Agent must have them in context for every Lighthouse call. They are distilled from `references/pricing-and-tiers.md` and `references/action-combinations.md` — if anything here conflicts with those docs, the reference file wins and this section should be updated.
+The Lighthouse Open API does not accept a free-form budget. The real
+`POST /campaigns/engagement` request shape is:
 
-### Fee formula — 5% platform fee on Engagement
-
-```
-platformFee = totalBudget × 0.05
-totalCost   = totalBudget × 1.05
-```
-
-- `totalBudget` is the sum sellers (KOLs) can earn: `Σ (baseReward × targetCount)` across all actions and tiers.
-- `totalCost` is what the buyer actually pays out of their LUX wallet at publish time.
-- **Always show this computation to the user before asking for confirmation.** The buyer cares about `totalCost`; the backend also debits `totalCost`, not `totalBudget`.
-
-### COMMENT_LIKE mutual exclusion
-
-`COMMENT_LIKE` is a "combo" action (one KOL both comments and likes). It **cannot appear alongside standalone `LIKE` or standalone `COMMENT` in the same campaign** — the backend returns `400` if you try.
-
-Legal action sets (partial list):
-- `[LIKE]`, `[COMMENT]`, `[LIKE, COMMENT]`, `[LIKE, RT]`, `[LIKE, COMMENT, RT]`, `[LIKE, COMMENT, RT, FOLLOW]`
-- `[COMMENT_LIKE]`, `[COMMENT_LIKE, RT]`, `[COMMENT_LIKE, RT, FOLLOW]`, `[COMMENT_LIKE, FOLLOW]`
-
-Illegal (will 400):
-- `[COMMENT_LIKE, LIKE, ...]` — conflict with LIKE
-- `[COMMENT_LIKE, COMMENT, ...]` — conflict with COMMENT
-
-Validate this locally before POSTing. If the user asks for something that's both "likes" and "comment+like combos," pick one — don't ship a request you already know will 400.
-
-### Tier defaults
-
-- Tiers are `S / A / B / C / D / E`. **S is not priced in the open Engagement table** — it's reserved for Tweet / hand-negotiated deals.
-- If you omit `targetTiers`, **all eligible tiers** (A/B/C/D/E) are open — this is the default.
-- Only narrow `targetTiers` when the buyer has an explicit quality target (e.g. "A-tier only for a brand launch"). Narrowing the tier list shrinks the pool of KOLs who can claim slots, so campaigns fill more slowly.
-
-### Expiration defaults
-
-- **Default: 8 hours.** The backend hard-codes this (`campaign.service.ts:249`). **If 8h is what the buyer wants, do NOT pass `expiresInHours` in the request body** — let the backend default apply, so future changes to the default follow automatically.
-- **Urgent: 2–4 hours** — launch windows, news spikes, scheduled drops. Set `expiresInHours` explicitly.
-- **Long-tail: 24 hours** — overnight pickup across time zones. Set `expiresInHours` explicitly.
-- Only set `expiresInHours` when the buyer's intent is non-default.
-
-### Budget estimation heuristic (A-tier)
-
-Rough default A-tier unit prices — memorize these for off-the-cuff estimates; trust `GET /pricing` for authoritative numbers.
-
-| Action          | A-tier baseReward (newLUX) |
-|-----------------|----------------------------|
-| `LIKE`          | 0.4                        |
-| `COMMENT`       | 0.8                        |
-| `COMMENT_LIKE`  | 1.2                        |
-| `FOLLOW`        | 12                         |
-| `RT`            | 20                         |
-
-Formula for a single action, A-tier:
-
-```
-totalBudget ≈ N × baseReward
-totalCost   ≈ totalBudget × 1.05
+```jsonc
+{
+  "targetUrl": "https://x.com/user/status/123",
+  "actions": [
+    { "actionType": "LIKE", "tierSlots": { "A": 50, "B": 100 } }
+  ],
+  "expiresInHours": 8   // optional
+}
 ```
 
-**Worked example — 100 A-tier likes:**
+The backend computes the budget and platform fee itself from `tierSlots × price`. The Agent's job is to **translate user intent into `tierSlots`** — no `totalBudget`, no `targetCount`, no `mode`, no top-level `targetTiers` fields exist on the wire.
 
-```
-totalBudget = 100 × 0.4       = 40.0  newLUX
-platformFee = 40.0 × 0.05     =  2.0  newLUX
-totalCost   = 40.0 + 2.0      = 42.0  newLUX
-```
+This section tells the Agent what to do before every campaign create. Deeper strategy (which tier mix fits a given intent) lives in `references/pricing-and-tiers.md` §4; the Agent should load that file when translating non-trivial requests.
 
-For mixed tiers or mixed actions, sum `N_tier × baseReward_tier` across the matrix, then multiply the sum by 1.05. See `references/pricing-and-tiers.md` §4 for the full formula and a worked mixed example.
+### Required call order before every `POST /campaigns/engagement`
 
-### Mode choice — OPEN vs. INVITE
+1. **`GET /balance`** — confirm the buyer has funds. Record `totalLux`.
+2. **`GET /pricing`** — fetch the current `prices` table and `platformFeeRate`. Cache both for the rest of the session; prices are dynamic (admin-editable, 60s server cache).
+3. **Translate intent → `actions[].tierSlots`** using heuristics from `references/pricing-and-tiers.md` §4 (the translation is load-bearing — do not shortcut it).
+4. **Compute cost locally**:
+   ```
+   computed_budget = Σ slot × prices[action][tier]
+   platform_fee    = computed_budget × platformFeeRate      (0.05 today)
+   total_cost      = computed_budget + platform_fee         (= computed_budget × 1.05)
+   ```
+5. **Present the proposal to the user** (see the Mandatory Safety Flow below for the required block format). Get explicit confirmation, then `POST`.
 
-- **OPEN** (default) — the campaign lands in the public Task Hall; any eligible KOL can claim a slot. Faster fill, broader reach, lower quality floor.
-- **INVITE** — the buyer names specific KOL handles who can claim. Slower fill, higher quality control. Use only when the buyer has a specific KOL list.
+### Validation rules — apply BEFORE posting
 
-Default to OPEN unless the buyer explicitly gave you handles to invite.
+The backend enforces these. Catch them client-side for better UX:
+
+- **Tier keys** — `tierSlots` keys must be in `{A, B, C, D, E}`. **`S` is not allowed** on this endpoint; S-tier deals go through Tweet campaigns or hand-negotiated flows.
+- **Non-empty slots** — at least one `tierSlots[tier] > 0` across all actions. An empty request returns `EMPTY_TIER_SLOTS`.
+- **Slot values** — non-negative integers. No floats, no negatives.
+- **`COMMENT_LIKE` mutual exclusion** — `COMMENT_LIKE` is a combo action (one KOL both comments and likes). It **cannot appear alongside standalone `LIKE` or `COMMENT`** in the same request. Legal partners for `COMMENT_LIKE`: `RT`, `FOLLOW` only.
+  - Legal: `[LIKE]`, `[LIKE, RT]`, `[LIKE, COMMENT, RT, FOLLOW]`, `[COMMENT_LIKE]`, `[COMMENT_LIKE, RT, FOLLOW]`.
+  - Illegal (400): `[COMMENT_LIKE, LIKE, …]`, `[COMMENT_LIKE, COMMENT, …]`.
+- **`targetUrl`** — must be a valid URL.
+- **`expiresInHours`** — optional, integer ≥ 1 if present.
+
+### Expiration — default 8h
+
+- **Default: 8 hours.** The backend hard-codes this. **If 8h is what the buyer wants, do NOT send `expiresInHours` at all** — let the backend default apply so future changes follow automatically.
+- **Urgent: 2–4 hours** — launch windows, news spikes. Set explicitly.
+- **Long-tail: 24 hours** — overnight pickup across time zones. Set explicitly.
+- Only include `expiresInHours` when the buyer's intent is non-default.
+
+### Tier preference cues from the buyer
+
+Map natural-language intent to `tierSlots` tiers:
+
+| Buyer says | Default tier choice |
+|---|---|
+| "top KOLs only", "premium", "brand launch" | **A only** (S is not available here) |
+| "any tier", nothing specified | **A** — quality-first default; offer a cheaper fallback |
+| "cheapest", "maximum volume" | **D** or **E** (lowest price; D and E are priced identically by default) |
+| count + budget that doesn't fit in A | **Mix** — A first, fill the remainder from a cheaper tier (prefer two-tier splits for readability) |
+| Specific tier list ("only A or B") | Constrain to those tiers, then apply the strategy above inside the constraint |
+
+If the buyer gives you a count + budget that doesn't fit even at the cheapest tier, **tell them the count isn't achievable** and offer concrete alternatives (reduce count, or raise budget). Never silently truncate.
+
+When ambiguity remains (e.g. "buy likes" with no count), **ask** — don't guess.
 
 ## Mandatory Safety Flow
 
