@@ -36,17 +36,9 @@ Expected output is a JSON object containing `oldLux`, `newLux`, `totalLux`. A `4
 
 ## Demo
 
-![Buying engagement](docs/demo-1.png)
-
-(screenshot pending — see `examples/buy-engagement.md` for the full dialogue)
-
-![Tracking campaigns](docs/demo-2.png)
-
-(screenshot pending — see `examples/track-campaign.md` for the full dialogue)
-
-![Batch planning — safety in action](docs/demo-3.png)
-
-(screenshot pending — see `examples/batch-planning.md` for the full dialogue)
+- Buying engagement — screenshot pending; see `examples/buy-engagement.md` for the full dialogue.
+- Tracking campaigns — screenshot pending; see `examples/track-campaign.md` for the full dialogue.
+- Batch planning (safety in action) — screenshot pending; see `examples/batch-planning.md` for the full dialogue.
 
 ## Safety notes
 
