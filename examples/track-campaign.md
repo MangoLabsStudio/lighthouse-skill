@@ -40,9 +40,9 @@ $ ./scripts/lighthouse campaigns list --status ACTIVE
       "status": "ACTIVE",
       "type": "ENGAGEMENT",
       "targetUrl": "https://x.com/bar/status/456",
-      "totalBudget": 84,
-      "consumedBudget": 21,
-      "remainingPool": 63,
+      "totalBudget": 77,
+      "consumedBudget": 19,
+      "remainingPool": 58,
       "actions": [
         { "actionType": "LIKE",   "baseReward": 0.4, "targetCount": 100, "completedCount": 30 },
         { "actionType": "FOLLOW", "baseReward": 12,  "targetCount": 4,   "completedCount": 1  }
@@ -76,7 +76,7 @@ $ ./scripts/lighthouse campaigns list --status ACTIVE
 | # | 目标 | 动作进度 | 预算使用 | 到期 |
 |---|------|---------|---------|------|
 | 1 | foo/status/123 | LIKE 45/50 (90%)·RT 2/20 (10%) | 62 / 170 LUX | 17:12 UTC |
-| 2 | bar/status/456 | LIKE 30/100 (30%)·FOLLOW 1/4 (25%) | 21 / 84 LUX | 18:45 UTC |
+| 2 | bar/status/456 | LIKE 30/100 (30%)·FOLLOW 1/4 (25%) | 19 / 77 LUX | 18:45 UTC |
 | 3 | baz/status/789 | RT 0/15 (0%) | 0 / 300 LUX | 19:30 UTC |
 
 第 1 条点赞几乎打满，转发还没起量；第 2 条进度正常；第 3 条刚发出去，还
@@ -98,9 +98,9 @@ $ ./scripts/lighthouse campaigns get clkg8a1kz0004efgh
   "status": "ACTIVE",
   "type": "ENGAGEMENT",
   "targetUrl": "https://x.com/bar/status/456",
-  "totalBudget": 84,
-  "consumedBudget": 21,
-  "remainingPool": 63,
+  "totalBudget": 77,
+  "consumedBudget": 19,
+  "remainingPool": 58,
   "actions": [
     {
       "actionType": "LIKE",
@@ -124,9 +124,9 @@ $ ./scripts/lighthouse campaigns get clkg8a1kz0004efgh
 
 明细：
 
-- **LIKE**：100 个席位（A=50, B=50），已完成 30，A 档单价 0.4 LUX
-- **FOLLOW**：4 个席位（A=2, B=2），已完成 1，A 档单价 12 LUX
-- 总预算 84 LUX，已结算 21 LUX，池子里还剩 63 LUX
+- **LIKE**：100 个席位（A=50, B=50），已完成 30，单价 A=0.4 / B=0.3 LUX（50×0.4 + 50×0.3 = 35 LUX）
+- **FOLLOW**：4 个席位（A=2, B=2），已完成 1，单价 A=12 / B=9 LUX（2×12 + 2×9 = 42 LUX）
+- 总预算 77 LUX，已结算 19 LUX，池子里还剩 58 LUX
 - 到期前还有 ~8 小时，按当前节奏 LIKE 能跑完，FOLLOW 可能吃紧
 
 要不要补一条更大的 LIKE 活动或者延长 FOLLOW？
