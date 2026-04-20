@@ -79,13 +79,61 @@ The Lighthouse Open API does not accept a free-form budget. The real
 {
   "targetUrl": "https://x.com/user/status/123",
   "actions": [
-    { "actionType": "LIKE", "tierSlots": { "A": 50, "B": 100 } }
+    { "actionType": "LIKE", "tierSlots": { "A": 50, "B": 100 } },
+    { "actionType": "RT",   "tierSlots": { "A": 3 } }
   ],
-  "expiresInHours": 8   // optional
+  "expiresInHours": 8,      // optional
+  "releaseCurve": "FLAT",   // optional, default FLAT
+  "releaseDuration": 60     // optional, default 60 min
 }
 ```
 
 The backend computes the budget and platform fee itself from `tierSlots × price`. The Agent's job is to **translate user intent into `tierSlots`** — no `totalBudget`, no `targetCount`, no `mode`, no top-level `targetTiers` fields exist on the wire.
+
+### One request → N atomic campaigns
+
+**Each entry in `actions[]` becomes its own campaign.** A single POST with
+two actions creates two separate campaigns atomically (all-or-nothing, rolled
+back on failure). The response has the batch shape:
+
+```jsonc
+{
+  "campaigns": [ /* CampaignResponseDto for action 1 */,
+                 /* CampaignResponseDto for action 2 */ ],
+  "totalBudget": 45.0,
+  "platformFee":  2.25,
+  "totalCost":   47.25
+}
+```
+
+When reporting back to the user, the Agent MUST say "Created N campaigns"
+with N = `campaigns.length`, not "Created a campaign". The confirmation block
+(step 4 of the Safety Flow) MUST enumerate the N sub-campaigns so the user
+sees exactly what will be spawned.
+
+### Release scheduling (`releaseCurve`, `releaseDuration`)
+
+Applied to every sub-campaign created by the request. Most Agents should
+leave these at their defaults unless the buyer explicitly asks to tune
+pacing.
+
+- **`releaseCurve`** — default `FLAT`.
+  - `FLAT` — steady release. Use when in doubt; fits almost every campaign.
+  - `INCREASING` — starts slow, accelerates. Good for audience warm-up when
+    the buyer wants early slots to look organic before opening the floodgates.
+  - `DECREASING` — front-loaded rush. Good when the buyer wants maximum
+    visibility in the first minutes (news spikes, product launches).
+  - `BATCH` — everything unlocks at once at the end. Use for simultaneous
+    reveals / coordinated pushes.
+  - `PARABOLIC` — bell curve (slow, peak mid-way, taper). Rarely what the
+    user wants unless they say so.
+- **`releaseDuration`** — integer minutes in `[1, 1440]`, default `60`.
+  Short campaigns (e.g. `expiresInHours ≤ 2`) should use a shorter duration
+  (15–30 min) so the release isn't still unlocking slots as the campaign
+  expires. Long campaigns can leave the default or raise it.
+
+Omit both fields to apply backend defaults — match the `expiresInHours`
+convention: if the default is what the buyer wants, don't send the field.
 
 This section tells the Agent what to do before every campaign create. Deeper strategy (which tier mix fits a given intent) lives in `references/pricing-and-tiers.md` §4; the Agent should load that file when translating non-trivial requests.
 
@@ -152,21 +200,26 @@ This flow is not advisory. A LUX-spending call without this flow is a bug — th
 
 3. **Parse the user's intent and propose `actions[].tierSlots`** (see Business Guidance + `references/pricing-and-tiers.md` §4). If the intent is ambiguous — e.g. "buy likes" with no count, or a tier preference that conflicts with budget — **ASK, don't guess.**
 
-4. **Compute the cost locally and present a structured block** to the user. Use this exact shape:
+4. **Compute the cost locally and present a structured block** to the user. Use this exact shape — one line per sub-campaign that will be created, so the user can see the atomic batch explicitly:
 
    ```
    ─ Target tweet: <URL>
-   ─ Actions:
-     · LIKE → A:50, B:100 → 50×0.4 + 100×0.3 = 50 LUX
-     · RT   → A:3         → 3×20 = 60 LUX
+   ─ Campaigns to create (atomic): 2
+     · #1 LIKE → A:50, B:100 → 50×0.4 + 100×0.3 = 50 LUX
+     · #2 RT   → A:3         → 3×20 = 60 LUX
    ─ Subtotal: 110 LUX
    ─ Platform fee (5%): 5.5 LUX
    ─ Total cost: 115.5 LUX
    ─ Balance after: <totalLux − 115.5> LUX
-   ─ Expiration: <default 8h | user-specified Nh>
+   ─ Release: FLAT / 60 min (default)
+   ─ Expires in: 8h (default)
    ```
 
-   Show the per-action math. Don't hand-wave the numbers.
+   Show the per-sub-campaign math. Don't hand-wave the numbers. The "N
+   atomic" count must equal `actions.length` — that's how many sub-campaigns
+   the server will spawn. If the user tuned `releaseCurve` or
+   `releaseDuration`, show the chosen values on the `Release:` line (strip
+   the `(default)` suffix).
 
 5. **Explicitly ask for confirmation:** "是否确认创建？(yes/no)" or "Confirm creation? (yes/no)". Wait for the reply.
 
@@ -195,9 +248,9 @@ This flow is not advisory. A LUX-spending call without this flow is a bug — th
 > Agent: Calls `GET /balance` → `totalLux: 200`. Calls `GET /pricing` → `LIKE.A = 0.4`.
 > Proposes `actions: [{ actionType: "LIKE", tierSlots: { A: 100 } }]` (quality-first default).
 > Computes: `computed_budget = 100 × 0.4 = 40.0`, `fee = 2.0`, `total_cost = 42.0`.
-> Presents the block (target, action math, subtotal, fee, total, balance after = 158 LUX, expiration: default 8h). Waits.
+> Presents the block ("Campaigns to create (atomic): 1", action math, subtotal, fee, total, balance after = 158 LUX, release: FLAT / 60 min default, expires in: 8h default). Waits.
 > User: "confirm"
-> Agent: Calls `POST /campaigns/engagement` with `{targetUrl, actions}` (no `expiresInHours` — let default apply), returns the campaign ID and link.
+> Agent: Calls `POST /campaigns/engagement` with `{targetUrl, actions}` (no optional fields — let defaults apply), reads `campaigns[0].id` from the batch response, and reports "Created 1 campaign: <id>. Total debited 42.0 LUX."
 
 ## Error Handling
 
@@ -208,7 +261,8 @@ Guard and interceptor errors return `{ code, message, statusCode }`. DTO validat
 | 401 | `INVALID_API_KEY` | Missing `X-API-Key` header, unknown key, or `isActive=false`. | Stop. Ask the user to check or rotate the key via the admin Web UI. Do NOT retry. |
 | 401 | `API_KEY_EXPIRED` | Key's `expiresAt` has passed. | Stop. Ask the user to rotate the key. Do NOT retry. |
 | 403 | `PERMISSION_DENIED` | Key is valid but lacks a required scope (`balance:read`, `campaign:read`, `campaign:create`). | Stop. Tell the user which scope is needed. Do NOT retry. |
-| 400 | _(no code)_ | Class-validator DTO error. `message` is an array of strings, e.g. `"targetUrl must be a valid URL"`, `"EMPTY_TIER_SLOTS: at least one action must have positive tier slots"`, `"COMMENT_LIKE cannot be combined with standalone LIKE or COMMENT"`. | Read every entry of `message` to the user. Fix the specific field. Do NOT auto-fix and retry without user confirmation. |
+| 400 | _(no code)_ | Class-validator DTO error. `message` is an array of strings, e.g. `"targetUrl must be a valid URL"`, `"COMMENT_LIKE cannot be combined with standalone LIKE or COMMENT"`. | Read every entry of `message` to the user. Fix the specific field. Do NOT auto-fix and retry without user confirmation. |
+| 400 | _(no code)_ | `EMPTY_TIER_SLOTS: <ACTION>` — match by the literal `EMPTY_TIER_SLOTS:` string prefix (plain `BadRequestException`, no code field). Raised when the listed action has all-zero `tierSlots`. | The Agent proposed an action with every tier = 0; that action contributes nothing. Remove it from `actions[]` or populate at least one tier with a positive integer, then re-confirm with the user before retrying. |
 | 400 | _(no code)_ | Service-layer error — match by `message` substring `"Insufficient LUX balance"`. Budget exceeds balance. | Re-run `GET /balance`, report the shortfall (`needed − have = X LUX`) to the user. Reduce `tierSlots` or ask the user to top up. Do NOT retry unchanged. |
 | 404 | _(no code)_ | Campaign not found, or not owned by this API key's user. | Verify the ID. Do NOT retry. |
 | 429 | `RATE_LIMIT_EXCEEDED` | Per-key sliding-window quota exhausted. Response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. | Wait until `X-RateLimit-Reset`, retry once. If still 429, abort and tell the user to slow down. |
@@ -282,9 +336,10 @@ curl -sS -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
      "$LIGHTHOUSE_API_BASE/campaigns/<campaign-id>"
 ```
 
-**POST `/campaigns/engagement`** — create an Engagement campaign. Body is `{targetUrl, actions, expiresInHours?}`. The server computes budget and fee from `actions[].tierSlots` × the pricing table — you do NOT send a budget:
+**POST `/campaigns/engagement`** — create one Engagement campaign per action, atomically. Body is `{targetUrl, actions, expiresInHours?, releaseCurve?, releaseDuration?}`. The server computes budget and fee from each `actions[i].tierSlots` × the pricing table — you do NOT send a budget. Response is the batch shape (`campaigns[]` + aggregate cost):
 
 ```bash
+# Minimal request — one action, defaults for everything else.
 curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
   -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
   -H "Content-Type: application/json" \
@@ -292,12 +347,26 @@ curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
     "targetUrl": "https://x.com/user/status/123",
     "actions": [
       {"actionType": "LIKE", "tierSlots": {"A": 50, "B": 100}}
+    ]
+  }'
+
+# Multi-action request with tuned release schedule — creates N campaigns atomically.
+curl -sS -X POST "$LIGHTHOUSE_API_BASE/campaigns/engagement" \
+  -H "X-API-Key: $LIGHTHOUSE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "targetUrl": "https://x.com/user/status/123",
+    "actions": [
+      {"actionType": "LIKE", "tierSlots": {"A": 50, "B": 100}},
+      {"actionType": "RT",   "tierSlots": {"A": 3}}
     ],
-    "expiresInHours": 8
+    "expiresInHours": 4,
+    "releaseCurve": "INCREASING",
+    "releaseDuration": 30
   }'
 ```
 
-Omit `expiresInHours` to use the backend default (8h).
+Omit `expiresInHours` / `releaseCurve` / `releaseDuration` to apply the backend defaults (8h, FLAT, 60 min). The response is `{ campaigns: [...], totalBudget, platformFee, totalCost }` — always iterate `campaigns[]`, never assume `.id` at the top level.
 
 ### Secrets hygiene
 
