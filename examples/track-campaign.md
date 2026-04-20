@@ -3,6 +3,14 @@
 Scenario — the buyer wants a quick status check on their recently created
 campaigns, then drills into one of them.
 
+> **Note on shape.** Each entry returned by `GET /campaigns` is a standalone
+> campaign. Campaigns created via `POST /campaigns/engagement` are
+> **one-action-per-campaign** (the server spawns N atomic sub-campaigns when
+> the request carries N actions), so items in the list typically have a
+> single-element `actions[]`. The legacy multi-action entries shown below
+> are from campaigns created via the Web UI before the split; the list view
+> handles both shapes identically.
+
 ---
 
 **User:**

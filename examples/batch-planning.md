@@ -6,6 +6,12 @@ confirmation, even when the buyer tries to pre-authorize the batch.
 
 This file demonstrates the safety flow's strength, not its convenience.
 
+Each POST in this scenario carries a single action (`LIKE`), so the batch
+response from the server contains exactly one sub-campaign per request — the
+Agent reports "Created 1 campaign: `<id>`" per URL, not "Created campaign
+N/5" (that numbering is the Agent's batch counter, separate from the API's
+`campaigns[]` array).
+
 ---
 
 **User:**
@@ -63,13 +69,14 @@ $ ./scripts/lighthouse pricing
 
 ```
 ─ Target tweet: https://x.com/a/status/1
-─ Actions:
-  · LIKE → A:100 → 100×0.4 = 40 LUX
+─ Campaigns to create (atomic): 1
+  · #1 LIKE → A:100 → 100×0.4 = 40 LUX
 ─ Subtotal: 40 LUX
 ─ Platform fee (5%): 2 LUX
 ─ Total cost: 42 LUX
 ─ Balance after: 308 LUX
-─ Expiration: default 8h
+─ Release: FLAT / 60 min (default)
+─ Expires in: 8h (default)
 ```
 
 是否确认创建？(yes/no)
@@ -86,10 +93,17 @@ $ ./scripts/lighthouse campaigns create-engagement \
 ```
 
 ```json
-{ "id": "clkh1aa00001", "status": "ACTIVE", "totalCost": 42, ... }
+{
+  "campaigns": [
+    { "id": "clkh1aa00001", "status": "ACTIVE", "totalCost": 42, ... }
+  ],
+  "totalBudget": 40,
+  "platformFee": 2,
+  "totalCost": 42
+}
 ```
 
-第 1 条完成，ID `clkh1aa00001`，余额 308 LUX。接下来第 2 条。
+第 1 条完成，Created 1 campaign: `clkh1aa00001`，余额 308 LUX。接下来第 2 条。
 
 ---
 
@@ -128,10 +142,15 @@ $ ./scripts/lighthouse campaigns create-engagement \
 ```
 
 ```json
-{ "id": "clkh1bb00002", "status": "ACTIVE", "totalCost": 42, ... }
+{
+  "campaigns": [
+    { "id": "clkh1bb00002", "status": "ACTIVE", "totalCost": 42, ... }
+  ],
+  "totalBudget": 40, "platformFee": 2, "totalCost": 42
+}
 ```
 
-第 2 条完成，余额 266 LUX。
+第 2 条完成，Created 1 campaign: `clkh1bb00002`，余额 266 LUX。
 
 ---
 
@@ -151,10 +170,15 @@ $ ./scripts/lighthouse campaigns create-engagement \
 ```
 
 ```json
-{ "id": "clkh1cc00003", "status": "ACTIVE", "totalCost": 42, ... }
+{
+  "campaigns": [
+    { "id": "clkh1cc00003", "status": "ACTIVE", "totalCost": 42, ... }
+  ],
+  "totalBudget": 40, "platformFee": 2, "totalCost": 42
+}
 ```
 
-第 3 条完成，余额 224 LUX。
+第 3 条完成，Created 1 campaign: `clkh1cc00003`，余额 224 LUX。
 
 ---
 
@@ -174,10 +198,15 @@ $ ./scripts/lighthouse campaigns create-engagement \
 ```
 
 ```json
-{ "id": "clkh1dd00004", "status": "ACTIVE", "totalCost": 42, ... }
+{
+  "campaigns": [
+    { "id": "clkh1dd00004", "status": "ACTIVE", "totalCost": 42, ... }
+  ],
+  "totalBudget": 40, "platformFee": 2, "totalCost": 42
+}
 ```
 
-第 4 条完成，余额 182 LUX。
+第 4 条完成，Created 1 campaign: `clkh1dd00004`，余额 182 LUX。
 
 ---
 
@@ -197,10 +226,15 @@ $ ./scripts/lighthouse campaigns create-engagement \
 ```
 
 ```json
-{ "id": "clkh1ee00005", "status": "ACTIVE", "totalCost": 42, ... }
+{
+  "campaigns": [
+    { "id": "clkh1ee00005", "status": "ACTIVE", "totalCost": 42, ... }
+  ],
+  "totalBudget": 40, "platformFee": 2, "totalCost": 42
+}
 ```
 
-第 5 条完成。
+第 5 条完成，Created 1 campaign: `clkh1ee00005`。
 
 ---
 
