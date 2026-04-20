@@ -59,6 +59,48 @@ expect_fail "mutex COMMENT_LIKE + LIKE" "COMMENT_LIKE cannot be combined" \
   campaigns create-engagement --url https://x.com/x/status/1 \
   --action COMMENT_LIKE:A=5 --action LIKE:A=5
 
+# --- Release scheduling flags ---
+
+expect_fail "bad release curve" "invalid release curve" \
+  campaigns create-engagement --url https://x.com/x/status/1 \
+  --action LIKE:A=5 --release-curve foo
+
+expect_fail "release-duration 0" "must be 1..1440" \
+  campaigns create-engagement --url https://x.com/x/status/1 \
+  --action LIKE:A=5 --release-duration 0
+
+expect_fail "release-duration 1441" "must be 1..1440" \
+  campaigns create-engagement --url https://x.com/x/status/1 \
+  --action LIKE:A=5 --release-duration 1441
+
+expect_fail "release-duration abc" "must be 1..1440" \
+  campaigns create-engagement --url https://x.com/x/status/1 \
+  --action LIKE:A=5 --release-duration abc
+
+# --- --print-body WITH release flags ---
+out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
+  campaigns create-engagement \
+  --url https://x.com/x/status/1 \
+  --action LIKE:A=5 \
+  --release-curve INCREASING \
+  --release-duration 120 \
+  --print-body 2>&1) \
+  || fail "--print-body w/ release flags should succeed, got: $out"
+echo "$out" | grep -q '"releaseCurve":"INCREASING"' || fail "--print-body missing releaseCurve: $out"
+echo "$out" | grep -q '"releaseDuration":120'       || fail "--print-body missing releaseDuration: $out"
+pass "--print-body with release flags"
+
+# --- --print-body WITHOUT release flags omits them ---
+out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
+  campaigns create-engagement \
+  --url https://x.com/x/status/1 \
+  --action LIKE:A=5 \
+  --print-body 2>&1) \
+  || fail "--print-body (no release) should succeed, got: $out"
+echo "$out" | grep -q 'releaseCurve'    && fail "--print-body must NOT include releaseCurve by default: $out"
+echo "$out" | grep -q 'releaseDuration' && fail "--print-body must NOT include releaseDuration by default: $out"
+pass "--print-body default (no release flags)"
+
 # --- Happy path --print-body ---
 out=$(LIGHTHOUSE_API_KEY=lh_live_dummy "$SCRIPT" \
   campaigns create-engagement \

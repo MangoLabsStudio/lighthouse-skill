@@ -18,13 +18,20 @@ Usage:
   lighthouse campaigns create-engagement \
      --url <tweet-url> \
      --action TYPE:TIER=N,TIER=N,... [--action TYPE:...] ... \
-     [--expires-in-hours N] [--print-body]
+     [--expires-in-hours N] \
+     [--release-curve FLAT|PARABOLIC|INCREASING|DECREASING|BATCH] \
+     [--release-duration N] \
+     [--print-body]
 
 Action spec:
   TYPE is one of LIKE|RT|COMMENT|FOLLOW|COMMENT_LIKE.
   TIER is one of A|B|C|D|E. Slot count must be a non-negative integer.
   Example: --action LIKE:A=5,B=10 --action RT:A=3
   Mutex: COMMENT_LIKE cannot be combined with LIKE or COMMENT.
+
+Release scheduling (optional; backend defaults to FLAT / 60 min):
+  --release-curve     one of FLAT|PARABOLIC|INCREASING|DECREASING|BATCH
+  --release-duration  integer minutes in [1, 1440]
 
 Env:
   LIGHTHOUSE_API_KEY   required, must start with "lh_live_"
@@ -132,7 +139,7 @@ case "$cmd" in
         req GET "/campaigns/$id" | jq .
         ;;
       create-engagement)
-        url="" expires="" print_body=0
+        url="" expires="" release_curve="" release_duration="" print_body=0
         actions_json='[]'
         total_slots=0
         has_like_or_comment=0
@@ -146,6 +153,16 @@ case "$cmd" in
             --expires-in-hours)
               is_pos_int "$2" || die "--expires-in-hours must be a positive integer, got: $2"
               expires="$2"; shift 2;;
+            --release-curve)
+              case "$2" in
+                FLAT|PARABOLIC|INCREASING|DECREASING|BATCH) ;;
+                *) die "invalid release curve: $2 (must be FLAT|PARABOLIC|INCREASING|DECREASING|BATCH)";;
+              esac
+              release_curve="$2"; shift 2;;
+            --release-duration)
+              is_pos_int "$2" || die "--release-duration must be 1..1440 integer, got: $2"
+              [ "$2" -ge 1 ] && [ "$2" -le 1440 ] || die "--release-duration must be 1..1440 integer, got: $2"
+              release_duration="$2"; shift 2;;
             --print-body) print_body=1; shift;;
             *) die "unknown arg: $1";;
           esac
@@ -157,9 +174,14 @@ case "$cmd" in
           die "COMMENT_LIKE cannot be combined with LIKE or COMMENT"
         fi
         body=$(jq -nc \
-          --arg url "$url" --argjson actions "$actions_json" --arg expires "$expires" '
+          --arg url "$url" --argjson actions "$actions_json" \
+          --arg expires "$expires" \
+          --arg curve "$release_curve" \
+          --arg duration "$release_duration" '
           {targetUrl:$url, actions:$actions}
-          + (if $expires == "" then {} else {expiresInHours:($expires|tonumber)} end)')
+          + (if $expires  == "" then {} else {expiresInHours:($expires|tonumber)} end)
+          + (if $curve    == "" then {} else {releaseCurve:$curve} end)
+          + (if $duration == "" then {} else {releaseDuration:($duration|tonumber)} end)')
         if [ "$print_body" -eq 1 ]; then
           echo "$body"
           exit 0
